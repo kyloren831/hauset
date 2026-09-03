@@ -1,0 +1,327 @@
+Project app_domotica {
+  database_type: 'PostgreSQL'
+  Note: '''
+    Esquema consolidado — App de Gestión de Campo para Domótica.
+    Aprobado por los encargados sobre la Propuesta de MVP (5 módulos).
+
+    Decisiones de diseño clave:
+    - Cotización (comercial, precio fijo) e Instrucciones (operativas,
+      versionadas) son entidades separadas. Un cambio de instrucciones
+      en sitio NO genera una recotización al cliente.
+    - Un "extra de materiales" se liga a la cotización existente y
+      NO genera un nuevo documento para el cliente.
+    - No existe catálogo con precio fijo: el precio de proveedor se
+      registra como snapshot en cada cotización (neto + margen),
+      porque el proveedor cambia precios a diario según categoría.
+    - Las credenciales de equipo son visibles para todo el equipo de
+      campo, pero se guardan cifradas y cada consulta queda auditada.
+  '''
+}
+
+// =========================================================
+// USUARIOS Y CLIENTES
+// =========================================================
+
+Table usuarios {
+  id integer [pk, increment]
+  nombre varchar
+  rol usuario_rol
+  telefono varchar
+  activo boolean [default: true]
+}
+
+Enum usuario_rol {
+  jefe_electromecanico
+  jefe_sistemas
+  ingeniero_industrial
+  instalador
+  secretaria
+  marketing
+}
+
+Table clientes {
+  id integer [pk, increment]
+  nombre varchar
+  telefono varchar
+  direccion varchar
+  notas text
+}
+
+Table leads {
+  id integer [pk, increment]
+  cliente_id integer [ref: > clientes.id]
+  origen varchar [default: 'whatsapp']
+  fecha timestamp
+  estado lead_estado
+}
+
+Enum lead_estado {
+  nuevo
+  cotizado
+  descartado
+}
+
+// =========================================================
+// CATÁLOGO, PROVEEDORES Y PRECIOS (sin precio fijo)
+// =========================================================
+
+Table proveedores {
+  id integer [pk, increment]
+  nombre varchar
+  categorias_asociadas varchar [note: 'ej. seguridad, iluminación']
+  contacto varchar
+}
+
+Table catalogo_productos {
+  id integer [pk, increment]
+  nombre varchar
+  categoria producto_categoria
+  especificacion text
+  Note: 'Referencia genérica. Sin precio fijo — el precio se registra en cada cotización.'
+}
+
+Enum producto_categoria {
+  seguridad
+  iluminacion
+  control_acceso
+  audio_automatizacion
+}
+
+Table precios_historial {
+  id integer [pk, increment]
+  producto_id integer [ref: > catalogo_productos.id]
+  proveedor_id integer [ref: > proveedores.id]
+  precio_neto decimal
+  disponible boolean
+  registrado_por integer [ref: > usuarios.id]
+  fecha timestamp
+  Note: 'Se alimenta automáticamente cada vez que se cotiza. Referencia rápida, no garantiza el precio actual.'
+}
+
+// =========================================================
+// INFORME TÉCNICO Y COTIZACIÓN
+// =========================================================
+
+Table informes_tecnicos {
+  id integer [pk, increment]
+  lead_id integer [ref: > leads.id]
+  ingeniero_id integer [ref: > usuarios.id]
+  notas text
+  fecha timestamp
+}
+
+Table informe_tecnico_items {
+  id integer [pk, increment]
+  informe_id integer [ref: > informes_tecnicos.id]
+  producto_id integer [ref: > catalogo_productos.id]
+  cantidad integer
+  Note: 'Sin precio — solo qué se necesita, según el ingeniero en sistemas.'
+}
+
+Table cotizaciones {
+  id integer [pk, increment]
+  informe_id integer [ref: > informes_tecnicos.id]
+  cliente_id integer [ref: > clientes.id]
+  armada_por integer [ref: > usuarios.id, note: 'secretaria']
+  margen_definido_por integer [ref: > usuarios.id, note: 'uno de los jefes']
+  fecha timestamp
+  estado cotizacion_estado
+  total decimal
+  pdf_url varchar
+}
+
+Enum cotizacion_estado {
+  enviada
+  aceptada
+  rechazada
+}
+
+Table cotizacion_items {
+  id integer [pk, increment]
+  cotizacion_id integer [ref: > cotizaciones.id]
+  producto_id integer [ref: > catalogo_productos.id]
+  proveedor_id integer [ref: > proveedores.id]
+  cantidad integer
+  precio_neto decimal [note: 'precio del proveedor en el momento de cotizar']
+  margen_porcentaje decimal
+  precio_venta decimal [note: 'precio_neto + margen, snapshot']
+  subtotal decimal
+}
+
+Table cotizacion_extras {
+  id integer [pk, increment]
+  cotizacion_id integer [ref: > cotizaciones.id]
+  motivo text
+  estado extra_estado
+  confirmado_por integer [ref: > usuarios.id, note: 'cualquiera de los dos jefes']
+  fecha timestamp
+  total_extra decimal
+  Note: 'Adenda a una cotización existente. No genera un nuevo documento al cliente.'
+}
+
+Enum extra_estado {
+  pendiente
+  confirmado
+}
+
+Table cotizacion_extra_items {
+  id integer [pk, increment]
+  extra_id integer [ref: > cotizacion_extras.id]
+  producto_id integer [ref: > catalogo_productos.id]
+  proveedor_id integer [ref: > proveedores.id]
+  cantidad integer
+  precio_neto decimal
+  margen_porcentaje decimal
+  precio_venta decimal
+  subtotal decimal
+}
+
+// =========================================================
+// PROYECTO, INSTRUCCIONES Y CHECKLIST
+// =========================================================
+
+Table proyectos {
+  id integer [pk, increment]
+  cotizacion_id integer [ref: - cotizaciones.id]
+  estado proyecto_estado
+  fecha_creacion timestamp
+}
+
+Enum proyecto_estado {
+  cotizado
+  en_instalacion
+  requiere_retorno
+  cerrado
+}
+
+Table instrucciones_version {
+  id integer [pk, increment]
+  proyecto_id integer [ref: > proyectos.id]
+  numero_version integer
+  generada_desde varchar [note: 'cotizacion | cambio_sitio']
+  creado_por integer [ref: > usuarios.id, note: 'null si se autogeneró desde la cotización']
+  fecha timestamp
+}
+
+Table cambios_instruccion {
+  id integer [pk, increment]
+  proyecto_id integer [ref: > proyectos.id]
+  instruccion_anterior_id integer [ref: > instrucciones_version.id]
+  instruccion_nueva_id integer [ref: > instrucciones_version.id]
+  propuesto_por integer [ref: > usuarios.id, note: 'instalador o ingeniero en sistemas']
+  descripcion text
+  requiere_material boolean
+  foto_url varchar
+  estado cambio_estado
+  confirmado_por integer [ref: > usuarios.id, note: 'cualquiera de los dos jefes']
+  extra_id integer [ref: > cotizacion_extras.id, note: 'solo si requiere_material = true']
+  fecha_propuesta timestamp
+  fecha_confirmacion timestamp
+}
+
+Enum cambio_estado {
+  pendiente_confirmacion
+  confirmado
+  rechazado
+}
+
+Table checklist_tareas {
+  id integer [pk, increment]
+  instruccion_version_id integer [ref: > instrucciones_version.id]
+  descripcion varchar
+  estado tarea_estado
+  foto_antes_url varchar
+  foto_despues_url varchar
+  notas text
+  orden integer
+}
+
+Enum tarea_estado {
+  pendiente
+  completada
+  no_aplica
+}
+
+// =========================================================
+// AGENDA DE VISITAS
+// =========================================================
+
+Table visitas {
+  id integer [pk, increment]
+  proyecto_id integer [ref: > proyectos.id]
+  numero_visita integer
+  asignado_a integer [ref: > usuarios.id]
+  agendado_por integer [ref: > usuarios.id, note: 'jefes o ingeniero industrial']
+  fecha_hora timestamp
+  estado visita_estado
+  motivo_retorno text
+}
+
+Enum visita_estado {
+  agendada
+  completada
+  requiere_retorno
+}
+
+Table firmas_conformidad {
+  id integer [pk, increment]
+  visita_id integer [ref: - visitas.id]
+  firma_imagen_url varchar
+  firmado_por_cliente varchar
+  fecha timestamp
+}
+
+Table reportes_entrega {
+  id integer [pk, increment]
+  proyecto_id integer [ref: - proyectos.id]
+  pdf_url varchar
+  generado_por integer [ref: > usuarios.id]
+  fecha_generacion timestamp
+}
+
+// =========================================================
+// CREDENCIALES Y MANTENIMIENTO (Módulo 5)
+// =========================================================
+
+Table equipos_instalados {
+  id integer [pk, increment]
+  proyecto_id integer [ref: > proyectos.id]
+  producto_id integer [ref: > catalogo_productos.id]
+  nombre_referencia varchar [note: 'ej. "Cámara entrada principal"']
+  fecha_instalacion date
+}
+
+Table credenciales_equipo {
+  id integer [pk, increment]
+  equipo_id integer [ref: > equipos_instalados.id]
+  tipo varchar [note: 'ej. wifi, app_dispositivo, panel_admin']
+  usuario varchar
+  contrasena_cifrada varchar
+  notas text
+  actualizado_por integer [ref: > usuarios.id]
+  fecha_actualizacion timestamp
+}
+
+Table credenciales_accesos_log {
+  id integer [pk, increment]
+  credencial_id integer [ref: > credenciales_equipo.id]
+  consultado_por integer [ref: > usuarios.id]
+  fecha timestamp
+  Note: 'Auditoría: quién vio la credencial y cuándo. Toda la app puede ver, por eso este registro es obligatorio.'
+}
+
+Table mantenimiento_recordatorios {
+  id integer [pk, increment]
+  proyecto_id integer [ref: > proyectos.id]
+  fecha_programada date [note: 'fecha de instalación + 6 meses']
+  estado recordatorio_estado
+  contactado_por integer [ref: > usuarios.id]
+  fecha_contacto timestamp
+  Note: 'El envío al cliente es manual por WhatsApp en el MVP; el sistema solo arma el mensaje y marca el pendiente.'
+}
+
+Enum recordatorio_estado {
+  pendiente
+  contactado
+  omitido
+}

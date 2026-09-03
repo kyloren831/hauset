@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  backend:
+    build: .
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/app_domotica
+      - SPRING_DATASOURCE_USERNAME=postgres
+      - SPRING_DATASOURCE_PASSWORD=postgres
+      - SPRING_JPA_HIBERNATE_DDL_AUTO=validate
+    depends_on:
+      - postgres
+    networks:
+      - domotica-net
+
+  postgres:
+    image: postgres:15
+    environment:
+      - POSTGRES_DB=app_domotica
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - domotica-net
+
+  minio:
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=admin
+      - MINIO_ROOT_PASSWORD=password
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    networks:
+      - domotica-net
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+    depends_on:
+      - backend
+    networks:
+      - domotica-net
+
+volumes:
+  postgres-data:
+  minio-data:
+
+networks:
+  domotica-net:
