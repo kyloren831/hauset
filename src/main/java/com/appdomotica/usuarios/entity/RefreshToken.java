@@ -1,8 +1,15 @@
 package com.appdomotica.usuarios.entity;
 
 import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
 import java.time.Instant;
 
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
 @Entity
 @Table(name = "refresh_tokens")
 public class RefreshToken {
@@ -19,13 +26,4 @@ public class RefreshToken {
 
     @Column(nullable = false)
     private Instant expiryDate;
-
-    public Integer getId() { return id; }
-    public void setId(Integer id) { this.id = id; }
-    public Usuario getUsuario() { return usuario; }
-    public void setUsuario(Usuario usuario) { this.usuario = usuario; }
-    public String getToken() { return token; }
-    public void setToken(String token) { this.token = token; }
-    public Instant getExpiryDate() { return expiryDate; }
-    public void setExpiryDate(Instant expiryDate) { this.expiryDate = expiryDate; }
 }

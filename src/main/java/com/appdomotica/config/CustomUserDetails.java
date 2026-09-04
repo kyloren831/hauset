@@ -1,6 +1,8 @@
 package com.appdomotica.config;
 
 import com.appdomotica.usuarios.entity.Usuario;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -8,13 +10,11 @@ import org.springframework.security.core.userdetails.UserDetails;
 import java.util.Collection;
 import java.util.Collections;
 
+@AllArgsConstructor
 public class CustomUserDetails implements UserDetails {
 
+    @Getter
     private final Usuario usuario;
-
-    public CustomUserDetails(Usuario usuario) {
-        this.usuario = usuario;
-    }
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
@@ -53,5 +53,13 @@ public class CustomUserDetails implements UserDetails {
 
     public Integer getId() {
         return usuario.getId();
+    }
+
+    public String getNombre() {
+        return usuario.getNombre();
+    }
+
+    public String getRol() {
+        return usuario.getRol().name();
     }
 }
