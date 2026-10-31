@@ -1,10 +1,23 @@
 Project app_domotica {
   database_type: 'PostgreSQL'
   Note: '''
-    Esquema consolidado — App de Gestión de Campo para Domótica.
-    Aprobado por los encargados sobre la Propuesta de MVP (5 módulos).
+    Esquema consolidado — App de Gestión de Campo para Domótica (Hauset).
+    Arquitectura Refactorizada: Opción B (Multimedia Centralizada) y S3-Compatible.
 
     Decisiones de diseño clave:
+    - Identificadores UUID: Todos los IDs del sistema son de tipo UUID para
+      permitir la generación descentralizada de entidades en clientes móviles
+      (SQLite offline) sin riesgo de colisiones al sincronizar con PostgreSQL.
+    - Control de Concurrencia Optimista (Optimistic Locking): Entidades críticas
+      o editadas en campo (cotizaciones, extras, proyectos, cambios, tareas, visitas)
+      incorporan la columna 'version' (inicia en 1) para resolver conflictos
+      concurrentes mediante detección HTTP 409 Conflict.
+    - Arquitectura Multimedia Centralizada (Opción B): Ninguna entidad de dominio
+      almacena binarios, URLs fijas o paths locales. Todas las fotos (antes/después,
+      relevamiento, evidencias, justificaciones, fotos de placas/MAC, avatares),
+      firmas y documentos PDF se gestionan a través de la entidad 'archivos_adjuntos'.
+    - Almacenamiento Compatible S3: En desarrollo se simula con MinIO (Docker) y en
+      producción con AWS S3 / Cloudflare R2 sin cambiar código (storage_key relativo).
     - Cotización (comercial, precio fijo) e Instrucciones (operativas,
       versionadas) son entidades separadas. Un cambio de instrucciones
       en sitio NO genera una recotización al cliente.
@@ -23,11 +36,15 @@ Project app_domotica {
 // =========================================================
 
 Table usuarios {
-  id integer [pk, increment]
-  nombre varchar
-  rol usuario_rol
+  id uuid [pk]
+  nombre varchar [not null]
+  rol usuario_rol [not null]
   telefono varchar
+  password_hash varchar [not null]
   activo boolean [default: true]
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
+  Note: 'Avatar gestionado en archivos_adjuntos (entidad_tipo=USUARIO, categoria=AVATAR)'
 }
 
 Enum usuario_rol {
@@ -39,20 +56,33 @@ Enum usuario_rol {
   marketing
 }
 
+Table refresh_tokens {
+  id uuid [pk]
+  usuario_id uuid [ref: > usuarios.id]
+  token varchar [unique, not null]
+  expiry_date timestamptz [not null]
+  created_at timestamptz [default: `now()`]
+}
+
 Table clientes {
-  id integer [pk, increment]
-  nombre varchar
+  id uuid [pk]
+  nombre varchar [not null]
   telefono varchar
   direccion varchar
   notas text
+  activo boolean [default: true]
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
 }
 
 Table leads {
-  id integer [pk, increment]
-  cliente_id integer [ref: > clientes.id]
+  id uuid [pk]
+  cliente_id uuid [ref: > clientes.id]
   origen varchar [default: 'whatsapp']
-  fecha timestamp
-  estado lead_estado
+  fecha timestamptz [default: `now()`]
+  estado lead_estado [default: 'nuevo']
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
 }
 
 Enum lead_estado {
@@ -66,18 +96,24 @@ Enum lead_estado {
 // =========================================================
 
 Table proveedores {
-  id integer [pk, increment]
-  nombre varchar
+  id uuid [pk]
+  nombre varchar [not null]
   categorias_asociadas varchar [note: 'ej. seguridad, iluminación']
   contacto varchar
+  activo boolean [default: true]
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
 }
 
 Table catalogo_productos {
-  id integer [pk, increment]
-  nombre varchar
-  categoria producto_categoria
+  id uuid [pk]
+  nombre varchar [not null]
+  categoria producto_categoria [not null]
   especificacion text
-  Note: 'Referencia genérica. Sin precio fijo — el precio se registra en cada cotización.'
+  activo boolean [default: true]
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
+  Note: 'Fotos y fichas técnicas PDF gestionadas en archivos_adjuntos'
 }
 
 Enum producto_categoria {
@@ -88,13 +124,13 @@ Enum producto_categoria {
 }
 
 Table precios_historial {
-  id integer [pk, increment]
-  producto_id integer [ref: > catalogo_productos.id]
-  proveedor_id integer [ref: > proveedores.id]
-  precio_neto decimal
-  disponible boolean
-  registrado_por integer [ref: > usuarios.id]
-  fecha timestamp
+  id uuid [pk]
+  producto_id uuid [ref: > catalogo_productos.id]
+  proveedor_id uuid [ref: > proveedores.id]
+  precio_neto decimal(12,2) [not null]
+  disponible boolean [default: true]
+  registrado_por uuid [ref: > usuarios.id]
+  fecha timestamptz [default: `now()`]
   Note: 'Se alimenta automáticamente cada vez que se cotiza. Referencia rápida, no garantiza el precio actual.'
 }
 
@@ -103,31 +139,39 @@ Table precios_historial {
 // =========================================================
 
 Table informes_tecnicos {
-  id integer [pk, increment]
-  lead_id integer [ref: > leads.id]
-  ingeniero_id integer [ref: > usuarios.id]
+  id uuid [pk]
+  lead_id uuid [ref: > leads.id]
+  ingeniero_id uuid [ref: > usuarios.id]
   notas text
-  fecha timestamp
+  desde_cotizacion boolean [not null, default: false, note: 'levantado para una cotización ya hecha (V15)']
+  fecha timestamptz [default: `now()`]
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
+  Note: 'Fotos del relevamiento en sitio asociadas en archivos_adjuntos'
 }
 
 Table informe_tecnico_items {
-  id integer [pk, increment]
-  informe_id integer [ref: > informes_tecnicos.id]
-  producto_id integer [ref: > catalogo_productos.id]
-  cantidad integer
+  id uuid [pk]
+  informe_id uuid [ref: > informes_tecnicos.id]
+  producto_id uuid [ref: > catalogo_productos.id]
+  cantidad integer [not null]
   Note: 'Sin precio — solo qué se necesita, según el ingeniero en sistemas.'
 }
 
 Table cotizaciones {
-  id integer [pk, increment]
-  informe_id integer [ref: > informes_tecnicos.id]
-  cliente_id integer [ref: > clientes.id]
-  armada_por integer [ref: > usuarios.id, note: 'secretaria']
-  margen_definido_por integer [ref: > usuarios.id, note: 'uno de los jefes']
-  fecha timestamp
-  estado cotizacion_estado
-  total decimal
-  pdf_url varchar
+  id uuid [pk]
+  informe_id uuid [ref: > informes_tecnicos.id, note: 'opcional: cotización en blanco (V15)']
+  lead_id uuid [not null, ref: > leads.id]
+  cliente_id uuid [ref: > clientes.id]
+  armada_por uuid [ref: > usuarios.id, note: 'secretaria']
+  margen_definido_por uuid [ref: > usuarios.id, note: 'uno de los jefes']
+  fecha timestamptz [default: `now()`]
+  estado cotizacion_estado [default: 'enviada']
+  total decimal(12,2) [not null, default: 0.00]
+  version integer [default: 1, note: 'Control de concurrencia optimista']
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
+  Note: 'El PDF generado reside en archivos_adjuntos (entidad_tipo=COTIZACION)'
 }
 
 Enum cotizacion_estado {
@@ -137,43 +181,58 @@ Enum cotizacion_estado {
 }
 
 Table cotizacion_items {
-  id integer [pk, increment]
-  cotizacion_id integer [ref: > cotizaciones.id]
-  producto_id integer [ref: > catalogo_productos.id]
-  proveedor_id integer [ref: > proveedores.id]
-  cantidad integer
-  precio_neto decimal [note: 'precio del proveedor en el momento de cotizar']
-  margen_porcentaje decimal
-  precio_venta decimal [note: 'precio_neto + margen, snapshot']
-  subtotal decimal
+  id uuid [pk]
+  cotizacion_id uuid [ref: > cotizaciones.id]
+  producto_id uuid [ref: > catalogo_productos.id]
+  producto_original_id uuid [ref: > catalogo_productos.id, note: 'producto reemplazado (V15)']
+  producto_original_nombre varchar
+  proveedor_id uuid [ref: > proveedores.id]
+  cantidad integer [not null]
+  precio_neto decimal(12,2) [not null]
+  margen_porcentaje decimal(5,2) [not null]
+  precio_venta decimal(12,2) [not null]
+  subtotal decimal(12,2) [not null]
 }
 
 Table cotizacion_extras {
-  id integer [pk, increment]
-  cotizacion_id integer [ref: > cotizaciones.id]
-  motivo text
-  estado extra_estado
-  confirmado_por integer [ref: > usuarios.id, note: 'cualquiera de los dos jefes']
-  fecha timestamp
-  total_extra decimal
-  Note: 'Adenda a una cotización existente. No genera un nuevo documento al cliente.'
-}
-
-Enum extra_estado {
-  pendiente
-  confirmado
+  id uuid [pk]
+  cotizacion_id uuid [not null, ref: > cotizaciones.id]
+  numero integer [not null, note: '1, 2, 3… dentro de la cotización; único con cotizacion_id']
+  motivo text [not null]
+  estado varchar(20) [not null, default: 'PENDIENTE', note: 'PENDIENTE, CONFIRMADO o DESCARTADO']
+  origen varchar(30) [not null, default: 'MANUAL', note: 'MANUAL o CAMBIO_INSTRUCCION']
+  creado_por uuid [ref: > usuarios.id]
+  margen_definido_por uuid [ref: > usuarios.id, note: 'uno de los jefes']
+  margen_definido_en timestamptz
+  confirmado_por uuid [ref: > usuarios.id, note: 'cualquiera de los dos jefes']
+  fecha timestamptz [note: 'fecha de confirmación']
+  descartado_por uuid [ref: > usuarios.id]
+  descartado_en timestamptz
+  motivo_descarte text
+  iva_porcentaje decimal(5,2) [note: 'el de su cotización']
+  total_extra decimal(12,2) [not null, default: 0.00, note: 'sin IVA']
+  monto_iva decimal(12,2) [not null, default: 0.00]
+  total_con_iva decimal(12,2) [not null, default: 0.00]
+  version integer [default: 1, note: 'Control de concurrencia optimista']
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
+  Note: 'Adenda a una cotización aceptada. No genera un nuevo documento al cliente. Suma al total facturado solo confirmado (RF-COT-11, V17).'
 }
 
 Table cotizacion_extra_items {
-  id integer [pk, increment]
-  extra_id integer [ref: > cotizacion_extras.id]
-  producto_id integer [ref: > catalogo_productos.id]
-  proveedor_id integer [ref: > proveedores.id]
-  cantidad integer
-  precio_neto decimal
-  margen_porcentaje decimal
-  precio_venta decimal
-  subtotal decimal
+  id uuid [pk]
+  extra_id uuid [not null, ref: > cotizacion_extras.id]
+  producto_id uuid [not null, ref: > catalogo_productos.id]
+  producto_nombre varchar(255)
+  proveedor_id uuid [ref: > proveedores.id]
+  cantidad integer [not null, note: '> 0']
+  orden integer [not null, default: 0]
+  precio_neto decimal(12,2) [note: 'falta mientras el extra está pendiente']
+  margen_porcentaje decimal(5,2)
+  precio_venta decimal(12,2)
+  subtotal decimal(12,2)
+  monto_iva decimal(12,2)
+  subtotal_con_iva decimal(12,2)
 }
 
 // =========================================================
@@ -181,10 +240,13 @@ Table cotizacion_extra_items {
 // =========================================================
 
 Table proyectos {
-  id integer [pk, increment]
-  cotizacion_id integer [ref: - cotizaciones.id]
-  estado proyecto_estado
-  fecha_creacion timestamp
+  id uuid [pk]
+  cotizacion_id uuid [ref: - cotizaciones.id]
+  estado proyecto_estado [default: 'cotizado']
+  fecha_creacion timestamptz [default: `now()`]
+  version integer [default: 1, note: 'Control de concurrencia optimista']
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
 }
 
 Enum proyecto_estado {
@@ -195,28 +257,49 @@ Enum proyecto_estado {
 }
 
 Table instrucciones_version {
-  id integer [pk, increment]
-  proyecto_id integer [ref: > proyectos.id]
-  numero_version integer
+  id uuid [pk]
+  proyecto_id uuid [ref: > proyectos.id]
+  numero_version integer [not null]
   generada_desde varchar [note: 'cotizacion | cambio_sitio']
-  creado_por integer [ref: > usuarios.id, note: 'null si se autogeneró desde la cotización']
-  fecha timestamp
+  creado_por uuid [ref: > usuarios.id, note: 'null si se autogeneró desde la cotización']
+  fecha timestamptz [default: `now()`]
+  version integer [default: 1, note: 'Control de concurrencia optimista']
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
 }
 
 Table cambios_instruccion {
-  id integer [pk, increment]
-  proyecto_id integer [ref: > proyectos.id]
-  instruccion_anterior_id integer [ref: > instrucciones_version.id]
-  instruccion_nueva_id integer [ref: > instrucciones_version.id]
-  propuesto_por integer [ref: > usuarios.id, note: 'instalador o ingeniero en sistemas']
-  descripcion text
-  requiere_material boolean
-  foto_url varchar
-  estado cambio_estado
-  confirmado_por integer [ref: > usuarios.id, note: 'cualquiera de los dos jefes']
-  extra_id integer [ref: > cotizacion_extras.id, note: 'solo si requiere_material = true']
-  fecha_propuesta timestamp
-  fecha_confirmacion timestamp
+  id uuid [pk]
+  proyecto_id uuid [ref: > proyectos.id]
+  instruccion_anterior_id uuid [ref: > instrucciones_version.id]
+  instruccion_nueva_id uuid [ref: > instrucciones_version.id]
+  propuesto_por uuid [ref: > usuarios.id, note: 'instalador o ingeniero en sistemas']
+  descripcion text [not null]
+  requiere_material boolean [default: false]
+  estado cambio_estado [default: 'pendiente_confirmacion']
+  confirmado_por uuid [ref: > usuarios.id, note: 'cualquiera de los dos jefes']
+  extra_id uuid [ref: > cotizacion_extras.id, note: 'solo si requiere_material = true']
+  fecha_propuesta timestamptz [default: `now()`]
+  fecha_confirmacion timestamptz [note: 'confirmación o rechazo']
+  motivo_rechazo text
+  version integer [default: 1, note: 'Control de concurrencia optimista']
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
+  Note: 'Fotos en archivos_adjuntos (CAMBIO_INSTRUCCION / FOTO_CAMBIO). No se borra; resuelto ya no cambia (trigger, V17).'
+}
+
+Table cambio_instruccion_lineas {
+  id uuid [pk]
+  cambio_id uuid [not null, ref: > cambios_instruccion.id]
+  orden integer [not null, default: 0]
+  tipo varchar(20) [not null, note: 'AGREGAR, CAMBIAR_CANTIDAD o QUITAR']
+  tarea_id uuid [ref: > checklist_tareas.id, note: 'tarea pendiente que cambia o se quita']
+  producto_id uuid [ref: > catalogo_productos.id, note: 'equipo que se agrega']
+  ubicacion_id uuid [ref: > informe_tecnico_ubicaciones.id]
+  cantidad integer [note: 'cantidad nueva']
+  descripcion varchar(300)
+  created_at timestamptz [default: `now()`]
+  Note: 'Solo inserción (trigger). V17.'
 }
 
 Enum cambio_estado {
@@ -226,14 +309,16 @@ Enum cambio_estado {
 }
 
 Table checklist_tareas {
-  id integer [pk, increment]
-  instruccion_version_id integer [ref: > instrucciones_version.id]
-  descripcion varchar
-  estado tarea_estado
-  foto_antes_url varchar
-  foto_despues_url varchar
+  id uuid [pk]
+  instruccion_version_id uuid [ref: > instrucciones_version.id]
+  descripcion varchar [not null]
+  estado tarea_estado [default: 'pendiente']
   notas text
-  orden integer
+  orden integer [default: 0]
+  version integer [default: 1, note: 'Control de concurrencia optimista']
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
+  Note: 'Fotos de antes y después vinculadas 1 a N en archivos_adjuntos'
 }
 
 Enum tarea_estado {
@@ -243,18 +328,21 @@ Enum tarea_estado {
 }
 
 // =========================================================
-// AGENDA DE VISITAS
+// AGENDA DE VISITAS, FIRMAS Y REPORTES
 // =========================================================
 
 Table visitas {
-  id integer [pk, increment]
-  proyecto_id integer [ref: > proyectos.id]
-  numero_visita integer
-  asignado_a integer [ref: > usuarios.id]
-  agendado_por integer [ref: > usuarios.id, note: 'jefes o ingeniero industrial']
-  fecha_hora timestamp
-  estado visita_estado
+  id uuid [pk]
+  proyecto_id uuid [ref: > proyectos.id]
+  numero_visita integer [default: 1]
+  asignado_a uuid [ref: > usuarios.id]
+  agendado_por uuid [ref: > usuarios.id, note: 'jefes o ingeniero industrial']
+  fecha_hora timestamptz [not null]
+  estado visita_estado [default: 'agendada']
   motivo_retorno text
+  version integer [default: 1, note: 'Control de concurrencia optimista']
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
 }
 
 Enum visita_estado {
@@ -264,19 +352,21 @@ Enum visita_estado {
 }
 
 Table firmas_conformidad {
-  id integer [pk, increment]
-  visita_id integer [ref: - visitas.id]
-  firma_imagen_url varchar
-  firmado_por_cliente varchar
-  fecha timestamp
+  id uuid [pk]
+  visita_id uuid [ref: - visitas.id]
+  firmado_por_cliente varchar [not null]
+  fecha timestamptz [default: `now()`]
+  created_at timestamptz [default: `now()`]
+  Note: 'Imagen de firma digitalizada en archivos_adjuntos'
 }
 
 Table reportes_entrega {
-  id integer [pk, increment]
-  proyecto_id integer [ref: - proyectos.id]
-  pdf_url varchar
-  generado_por integer [ref: > usuarios.id]
-  fecha_generacion timestamp
+  id uuid [pk]
+  proyecto_id uuid [ref: - proyectos.id]
+  generado_por uuid [ref: > usuarios.id]
+  fecha_generacion timestamptz [default: `now()`]
+  created_at timestamptz [default: `now()`]
+  Note: 'PDF de acta de entrega gestionado en archivos_adjuntos'
 }
 
 // =========================================================
@@ -284,39 +374,50 @@ Table reportes_entrega {
 // =========================================================
 
 Table equipos_instalados {
-  id integer [pk, increment]
-  proyecto_id integer [ref: > proyectos.id]
-  producto_id integer [ref: > catalogo_productos.id]
-  nombre_referencia varchar [note: 'ej. "Cámara entrada principal"']
-  fecha_instalacion date
+  id uuid [pk]
+  proyecto_id uuid [ref: > proyectos.id]
+  producto_id uuid [ref: > catalogo_productos.id]
+  nombre_referencia varchar [not null, note: 'ej. "Cámara entrada principal"']
+  numero_serie varchar
+  direccion_mac varchar
+  fecha_instalacion date [default: `CURRENT_DATE`]
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
+  Note: 'Fotos de montaje y de placa/MAC asociadas en archivos_adjuntos'
 }
 
 Table credenciales_equipo {
-  id integer [pk, increment]
-  equipo_id integer [ref: > equipos_instalados.id]
+  id uuid [pk]
+  equipo_id uuid [ref: > equipos_instalados.id]
   tipo varchar [note: 'ej. wifi, app_dispositivo, panel_admin']
   usuario varchar
-  contrasena_cifrada varchar
+  contrasena_cifrada varchar [not null]
   notas text
-  actualizado_por integer [ref: > usuarios.id]
-  fecha_actualizacion timestamp
+  actualizado_por uuid [ref: > usuarios.id]
+  fecha_actualizacion timestamptz [default: `now()`]
+  version integer [default: 1, note: 'Control de concurrencia optimista']
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
 }
 
 Table credenciales_accesos_log {
-  id integer [pk, increment]
-  credencial_id integer [ref: > credenciales_equipo.id]
-  consultado_por integer [ref: > usuarios.id]
-  fecha timestamp
+  id uuid [pk]
+  credencial_id uuid [ref: > credenciales_equipo.id]
+  consultado_por uuid [ref: > usuarios.id]
+  fecha timestamptz [default: `now()`]
   Note: 'Auditoría: quién vio la credencial y cuándo. Toda la app puede ver, por eso este registro es obligatorio.'
 }
 
 Table mantenimiento_recordatorios {
-  id integer [pk, increment]
-  proyecto_id integer [ref: > proyectos.id]
+  id uuid [pk]
+  proyecto_id uuid [ref: > proyectos.id]
   fecha_programada date [note: 'fecha de instalación + 6 meses']
-  estado recordatorio_estado
-  contactado_por integer [ref: > usuarios.id]
-  fecha_contacto timestamp
+  estado recordatorio_estado [default: 'pendiente']
+  contactado_por uuid [ref: > usuarios.id]
+  fecha_contacto timestamptz
+  version integer [default: 1, note: 'Control de concurrencia optimista']
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
   Note: 'El envío al cliente es manual por WhatsApp en el MVP; el sistema solo arma el mensaje y marca el pendiente.'
 }
 
@@ -324,4 +425,52 @@ Enum recordatorio_estado {
   pendiente
   contactado
   omitido
+}
+
+// =========================================================
+// TABLA CENTRALIZADA DE MULTIMEDIA Y ARCHIVOS (OPCIÓN B)
+// =========================================================
+
+Table archivos_adjuntos {
+  id uuid [pk]
+  entidad_tipo varchar [not null, note: 'INFORME_TECNICO, CHECKLIST_TAREA, CAMBIO_INSTRUCCION, EQUIPO_INSTALADO, CATALOGO_PRODUCTO, USUARIO, FIRMA_CONFORMIDAD, COTIZACION, REPORTE_ENTREGA']
+  entidad_id uuid [not null, note: 'UUID de la entidad foránea asociada']
+  categoria varchar [not null, note: 'EVIDENCIA_ANTES, EVIDENCIA_DESPUES, PLANO_CROQUIS, FOTO_PLACA_MAC, FOTO_INSTALACION, AVATAR, FIRMA_CLIENTE, FICHA_TECNICA, DOCUMENTO_PDF']
+  storage_provider varchar [not null, default: 'S3', note: 'S3, LOCAL_SIMULADO']
+  bucket varchar [not null, default: 'hauset-media']
+  storage_key varchar [unique, not null, note: 'Ruta relativa de almacenamiento en S3/MinIO']
+  nombre_original varchar [not null]
+  mime_type varchar [not null]
+  tamano_bytes bigint [not null]
+  checksum_sha256 varchar [not null, note: 'Hash SHA-256 para verificación de integridad e idempotencia móvil']
+  ancho_px integer
+  alto_px integer
+  thumbnail_storage_key varchar [note: 'Ruta de la miniatura WebP generada en background']
+  estado varchar [not null, default: 'DISPONIBLE', note: 'PENDIENTE_SUBIDA, DISPONIBLE, ERROR']
+  notas text
+  subido_por uuid [ref: > usuarios.id]
+  created_at timestamptz [default: `now()`]
+  deleted_at timestamptz [note: 'Soft delete para purga asíncrona en disco/bucket']
+}
+
+// V16: lista de tareas de la oficina (SRS 3.8). Distinta del checklist de un proyecto.
+Table tareas_equipo {
+  id uuid [pk, default: `gen_random_uuid()`]
+  titulo varchar(200) [not null]
+  descripcion text
+  estado varchar(20) [not null, default: 'POR_HACER', note: 'POR_HACER, EN_PROCESO, HECHA (columnas del tablero)']
+  privada boolean [not null, default: false, note: 'Solo la ve quien la creó (RN-12)']
+  fecha_limite date
+  creada_por uuid [not null, ref: > usuarios.id]
+  asignada_a uuid [ref: > usuarios.id, note: 'Solo jefes o secretaria']
+  lead_id uuid [ref: > leads.id, note: 'A lo sumo uno de lead, cotización o proyecto']
+  cotizacion_id uuid [ref: > cotizaciones.id]
+  proyecto_id uuid [ref: > proyectos.id]
+  origen varchar(40) [not null, default: 'MANUAL', note: 'MANUAL, o automática: COTIZACION_ACEPTADA, CAMBIO_PROPUESTO, EXTRA_PENDIENTE']
+  origen_ref uuid [note: 'id del cambio o del extra que originó la tarea automática']
+  completada_por uuid [ref: > usuarios.id]
+  completada_en timestamptz
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+  version bigint [not null, default: 1]
 }
