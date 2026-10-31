@@ -1,32 +1,34 @@
 package com.appdomotica.clientes.entity;
 
 import jakarta.persistence.*;
-import java.time.LocalDateTime;
+import lombok.Getter;
+import lombok.Setter;
 
+import java.time.OffsetDateTime;
+import java.util.UUID;
+
+@Getter
+@Setter
 @Entity
 @Table(name = "leads")
 public class Lead {
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Integer id;
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private UUID id;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "cliente_id")
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "cliente_id", nullable = false)
     private Cliente cliente;
 
-    private String origen = "whatsapp";
-    private LocalDateTime fecha;
+    /** Origen del contacto (RF-COT-01). Por defecto WhatsApp. */
+    private String origen = "WHATSAPP";
+
+    private OffsetDateTime fecha = OffsetDateTime.now();
 
     @Enumerated(EnumType.STRING)
-    private EstadoLead estado;
-    public Integer getId() { return id; }
-    public void setId(Integer id) { this.id = id; }
-    public Cliente getCliente() { return cliente; }
-    public void setCliente(Cliente cliente) { this.cliente = cliente; }
-    public String getOrigen() { return origen; }
-    public void setOrigen(String origen) { this.origen = origen; }
-    public LocalDateTime getFecha() { return fecha; }
-    public void setFecha(LocalDateTime fecha) { this.fecha = fecha; }
-    public EstadoLead getEstado() { return estado; }
-    public void setEstado(EstadoLead estado) { this.estado = estado; }
+    @Column(nullable = false)
+    private EstadoLead estado = EstadoLead.NUEVO;
+
+    @Column(columnDefinition = "TEXT")
+    private String notas;
 }

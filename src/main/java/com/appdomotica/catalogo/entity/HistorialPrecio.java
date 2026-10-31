@@ -1,15 +1,26 @@
 package com.appdomotica.catalogo.entity;
+
+import com.appdomotica.usuarios.entity.Usuario;
 import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import com.appdomotica.usuarios.entity.Usuario;
+import java.util.UUID;
 
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 @Entity
 @Table(name = "precios_historial")
 public class HistorialPrecio {
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Integer id;
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private UUID id;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "producto_id")
@@ -27,18 +38,8 @@ public class HistorialPrecio {
     private Usuario registradoPor;
 
     private LocalDateTime fecha;
-    public Integer getId() { return id; }
-    public void setId(Integer id) { this.id = id; }
-    public ProductoCatalogo getProducto() { return producto; }
-    public void setProducto(ProductoCatalogo producto) { this.producto = producto; }
-    public Proveedor getProveedor() { return proveedor; }
-    public void setProveedor(Proveedor proveedor) { this.proveedor = proveedor; }
-    public java.math.BigDecimal getPrecioNeto() { return precioNeto; }
-    public void setPrecioNeto(java.math.BigDecimal precioNeto) { this.precioNeto = precioNeto; }
-    public Boolean getDisponible() { return disponible; }
-    public void setDisponible(Boolean disponible) { this.disponible = disponible; }
-    public Usuario getRegistradoPor() { return registradoPor; }
-    public void setRegistradoPor(Usuario registradoPor) { this.registradoPor = registradoPor; }
-    public LocalDateTime getFecha() { return fecha; }
-    public void setFecha(LocalDateTime fecha) { this.fecha = fecha; }
+
+    /** Ítem de cotización que originó este precio (RF-CAT-04); nulo si se registró a mano. */
+    @Column(name = "cotizacion_item_id")
+    private UUID cotizacionItemId;
 }

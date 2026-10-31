@@ -2,30 +2,35 @@ package com.appdomotica.cotizaciones.entity;
 
 import com.appdomotica.catalogo.entity.ProductoCatalogo;
 import jakarta.persistence.*;
+import lombok.Getter;
+import lombok.Setter;
 
+import java.util.UUID;
+
+@Getter
+@Setter
 @Entity
 @Table(name = "informe_tecnico_items")
 public class InformeTecnicoItem {
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Integer id;
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private UUID id;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "informe_id")
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "informe_id", nullable = false)
     private InformeTecnico informe;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "producto_id")
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "ubicacion_id", nullable = false)
+    private InformeTecnicoUbicacion ubicacion;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "producto_id", nullable = false)
     private ProductoCatalogo producto;
 
+    @Column(nullable = false)
     private Integer cantidad;
 
-    public Integer getId() { return id; }
-    public void setId(Integer id) { this.id = id; }
-    public InformeTecnico getInforme() { return informe; }
-    public void setInforme(InformeTecnico informe) { this.informe = informe; }
-    public ProductoCatalogo getProducto() { return producto; }
-    public void setProducto(ProductoCatalogo producto) { this.producto = producto; }
-    public Integer getCantidad() { return cantidad; }
-    public void setCantidad(Integer cantidad) { this.cantidad = cantidad; }
+    @Column(nullable = false)
+    private Integer orden = 0;
 }

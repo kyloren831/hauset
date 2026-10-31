@@ -1,21 +1,34 @@
 package com.appdomotica.catalogo.entity;
-import jakarta.persistence.*;
 
+import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.util.UUID;
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
 @Entity
 @Table(name = "proveedores")
 public class Proveedor {
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Integer id;
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private UUID id;
+
     private String nombre;
+
+    /** Categorías que atiende, separadas por coma en minúscula (p. ej. "seguridad, control_acceso"). */
     private String categoriasAsociadas;
     private String contacto;
-    public Integer getId() { return id; }
-    public void setId(Integer id) { this.id = id; }
-    public String getNombre() { return nombre; }
-    public void setNombre(String nombre) { this.nombre = nombre; }
-    public String getCategoriasAsociadas() { return categoriasAsociadas; }
-    public void setCategoriasAsociadas(String categoriasAsociadas) { this.categoriasAsociadas = categoriasAsociadas; }
-    public String getContacto() { return contacto; }
-    public void setContacto(String contacto) { this.contacto = contacto; }
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 12)
+    private EstadoCatalogo estado = EstadoCatalogo.ACTIVO;
+
+    /** Se puede usar en cotizaciones nuevas. */
+    public boolean esActivo() {
+        return estado == EstadoCatalogo.ACTIVO;
+    }
 }
