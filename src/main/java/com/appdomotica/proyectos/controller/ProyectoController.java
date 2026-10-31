@@ -76,6 +76,33 @@ public class ProyectoController {
                 usuario.getUsuario());
     }
 
+    // ---------- checklist por ubicación ----------
+
+    /** Marca o desmarca un punto de la checklist de una ubicación (idempotente: gana el último cambio). */
+    @PutMapping("/checklist/{itemId}")
+    @PreAuthorize(CAMPO)
+    public ProyectoDetalle marcarItem(@PathVariable UUID itemId, @Valid @RequestBody MarcarItemRequest req,
+                                      @AuthenticationPrincipal CustomUserDetails usuario) {
+        return service.marcarItem(itemId, req.marcado(), req.ocurridoEn(), usuario.getUsuario());
+    }
+
+    /** Foto de antes o de después de una ubicación con checklist. `momento`: ANTES o DESPUES. */
+    @PostMapping(value = "/{id}/ubicaciones/{ubicacionId}/fotos/{momento}",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize(CAMPO)
+    public ProyectoDetalle subirFotoUbicacion(@PathVariable UUID id, @PathVariable UUID ubicacionId,
+                                              @PathVariable String momento, @RequestParam("file") MultipartFile file,
+                                              @AuthenticationPrincipal CustomUserDetails usuario) {
+        return service.subirFotoUbicacion(id, ubicacionId, momento, file, usuario.getUsuario());
+    }
+
+    @DeleteMapping("/{id}/ubicaciones/{ubicacionId}/fotos/{fotoId}")
+    @PreAuthorize(CAMPO)
+    public ProyectoDetalle eliminarFotoUbicacion(@PathVariable UUID id, @PathVariable UUID ubicacionId,
+                                                 @PathVariable UUID fotoId) {
+        return service.eliminarFotoUbicacion(id, ubicacionId, fotoId);
+    }
+
     // ---------- visitas ----------
 
     @PostMapping("/{id}/visitas/iniciar")

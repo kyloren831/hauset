@@ -30,8 +30,22 @@ public final class ProyectoDtos {
                                   OffsetDateTime proximaVisita) {
     }
 
-    /** Ubicación del informe técnico: foto marcada y nota, para que el instalador sepa dónde va cada equipo. */
-    public record UbicacionProyecto(UUID id, int numero, String nota, UUID fotoId) {
+    /**
+     * Ubicación del informe técnico: foto marcada y nota, para que el instalador sepa dónde va cada equipo.
+     * Con `checklist`, además sus puntos, las fotos de antes y después de la ubicación y si quedó completada
+     * (calculado: todos los puntos marcados, foto de antes y de después, y sus tareas, si tiene, terminadas).
+     */
+    public record UbicacionProyecto(UUID id, int numero, String nota, UUID fotoId, List<ItemChecklist> checklist,
+                                    List<UUID> fotosAntes, List<UUID> fotosDespues, boolean completada) {
+    }
+
+    /** Punto de la checklist de una ubicación (copiado del informe al iniciar el proyecto). */
+    public record ItemChecklist(UUID id, String texto, boolean marcado, String marcadoPor, OffsetDateTime marcadoEn,
+                                Integer visitaNumero) {
+    }
+
+    public record MarcarItemRequest(@jakarta.validation.constraints.NotNull(message = "Indica si queda marcado")
+                                    Boolean marcado, OffsetDateTime ocurridoEn) {
     }
 
     public record ItemInstruccion(UUID id, String productoNombre, int cantidad, String descripcion, String accion) {

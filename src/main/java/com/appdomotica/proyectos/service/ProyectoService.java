@@ -29,6 +29,8 @@ import java.util.stream.Collectors;
 /**
  * Proyecto de instalación: instrucciones vigentes, ubicaciones del informe y checklist con evidencia.
  * Completar una tarea exige foto de antes y de después (RF-PRY-10); "no aplica" exige una nota.
+ * Una ubicación con checklist propia se completa marcando todos sus puntos, con foto de antes y de después
+ * de la ubicación (ver {@link ReglaUbicacion}).
  */
 @Service
 @RequiredArgsConstructor
@@ -38,6 +40,8 @@ public class ProyectoService {
     public static final String FOTO_DESPUES = "EVIDENCIA_DESPUES";
     public static final String ENTIDAD_CAMBIO = "CAMBIO_INSTRUCCION";
     public static final String FOTO_CAMBIO = "FOTO_CAMBIO";
+    /** Fotos de antes y después de una ubicación con checklist (entidad_id = id de la ubicación). */
+    public static final String ENTIDAD_UBICACION = "PROYECTO_UBICACION";
     private static final int MAX_FOTOS_POR_MOMENTO = 5;
 
     private final ProyectoRepository proyectos;
@@ -54,14 +58,21 @@ public class ProyectoService {
     private final ReporteEntregaRepository reportes;
     private final JdbcTemplate jdbc;
     private final CambioInstruccionRepository cambios;
+    private final ProyectoChecklistItemRepository checklist;
 
     @Transactional(readOnly = true)
     public List<ProyectoResumen> listar() {
         List<Proyecto> lista = proyectos.findAllByOrderByFechaCreacionDesc();
         Map<UUID, long[]> avance = new HashMap<>();
         if (!lista.isEmpty()) {
-            for (Object[] fila : tareas.avance(lista.stream().map(Proyecto::getId).toList())) {
+            List<UUID> ids = lista.stream().map(Proyecto::getId).toList();
+            for (Object[] fila : tareas.avance(ids)) {
                 avance.put((UUID) fila[0], new long[]{(Long) fila[1], (Long) fila[2]});
+            }
+            // La barra cuenta tareas terminadas más puntos de checklist marcados.
+            for (Object[] fila : checklist.avance(ids)) {
+                avance.merge((UUID) fila[0], new long[]{(Long) fila[1], (Long) fila[2]},
+                        (a, b) -> new long[]{a[0] + b[0], a[1] + b[1]});
             }
         }
         Map<UUID, List<Visita>> porVenir = lista.isEmpty() ? Map.of()
@@ -167,6 +178,91 @@ public class ProyectoService {
         return detalle(p);
     }
 
+    // ---------- checklist por ubicación ----------
+
+    /**
+     * Marca o desmarca un punto de la checklist de una ubicación. Es idempotente (mandar dos veces lo mismo no
+     * cambia nada) y gana el último cambio. Marcar inicia la visita si no hay una en curso (RF-PRY-11).
+     */
+    @Transactional
+    public ProyectoDetalle marcarItem(UUID itemId, boolean marcado, OffsetDateTime ocurridoEn, Usuario usuario) {
+        ProyectoChecklistItem item = checklist.findById(itemId)
+                .orElseThrow(() -> new ResourceNotFoundException("Punto de la checklist no encontrado: " + itemId));
+        Proyecto p = abierto(item.getProyecto().getId());
+        if (item.isMarcado() == marcado) {
+            return detalle(p);
+        }
+        OffsetDateTime cuando = VisitaService.momento(ocurridoEn);
+        Visita visita = marcado ? visitas.iniciar(p, usuario, cuando) : null;
+        item.setMarcado(marcado);
+        item.setMarcadoPor(marcado ? usuario : null);
+        item.setMarcadoEn(marcado ? cuando : null);
+        item.setMarcadoEnVisitaId(visita != null ? visita.getId() : null);
+        item.setUpdatedAt(OffsetDateTime.now());
+        checklist.saveAndFlush(item);
+        eventos.save(new ProyectoEvento(p, marcado ? "PUNTO_MARCADO" : "PUNTO_DESMARCADO", usuario,
+                "Ubicación " + numerosDeUbicacion(p).getOrDefault(item.getUbicacion().getId(), 0) + ": " + item.getTexto()));
+        return detalle(p);
+    }
+
+    /** Foto de antes o de después de una ubicación con checklist. */
+    @Transactional
+    public ProyectoDetalle subirFotoUbicacion(UUID proyectoId, UUID ubicacionId, String momento, MultipartFile foto,
+                                              Usuario usuario) {
+        String categoria = categoriaDe(momento);
+        Proyecto p = abierto(proyectoId);
+        Integer numero = ubicacionConChecklist(p, ubicacionId);
+        ValidadorImagen.validar(foto);
+        if (fotosUbicacion(ubicacionId, categoria).size() >= MAX_FOTOS_POR_MOMENTO) {
+            throw new BadRequestException("Como mucho " + MAX_FOTOS_POR_MOMENTO + " fotos de "
+                    + momento.toLowerCase(Locale.ROOT) + " por ubicación");
+        }
+        archivos.subirArchivo(foto, ENTIDAD_UBICACION, ubicacionId, categoria, "Ubicación " + numero, usuario);
+        return detalle(p);
+    }
+
+    @Transactional
+    public ProyectoDetalle eliminarFotoUbicacion(UUID proyectoId, UUID ubicacionId, UUID fotoId) {
+        Proyecto p = abierto(proyectoId);
+        ubicacionConChecklist(p, ubicacionId);
+        boolean propia = archivosRepo.findByEntidadTipoAndEntidadIdAndDeletedAtIsNull(ENTIDAD_UBICACION, ubicacionId)
+                .stream().anyMatch(a -> a.getId().equals(fotoId));
+        if (!propia) {
+            throw new ResourceNotFoundException("La foto no pertenece a esta ubicación");
+        }
+        archivos.eliminarArchivo(fotoId);
+        return detalle(p);
+    }
+
+    /** Número de la ubicación si es del proyecto y tiene checklist. */
+    private Integer ubicacionConChecklist(Proyecto p, UUID ubicacionId) {
+        Integer numero = numerosDeUbicacion(p).get(ubicacionId);
+        if (numero == null) {
+            throw new ResourceNotFoundException("La ubicación no es de este proyecto");
+        }
+        boolean tiene = checklist.findByProyectoIdOrderByOrdenAsc(p.getId()).stream()
+                .anyMatch(i -> i.getUbicacion().getId().equals(ubicacionId));
+        if (!tiene) {
+            throw new ConflictException("Esta ubicación no tiene checklist: las fotos van en cada tarea");
+        }
+        return numero;
+    }
+
+    /** Lo que les falta a las ubicaciones con checklist para cerrar el proyecto (RN-07). */
+    List<String> faltaEnUbicaciones(Proyecto p) {
+        return detalle(p).ubicaciones().stream()
+                .filter(u -> !u.checklist().isEmpty())
+                .flatMap(u -> ReglaUbicacion.falta(u.numero(), u.checklist().size(),
+                        (int) u.checklist().stream().filter(ItemChecklist::marcado).count(),
+                        u.fotosAntes().size(), u.fotosDespues().size()).stream())
+                .toList();
+    }
+
+    private List<ArchivoAdjunto> fotosUbicacion(UUID ubicacionId, String categoria) {
+        return archivosRepo.findByEntidadTipoAndEntidadIdAndCategoriaAndDeletedAtIsNull(ENTIDAD_UBICACION, ubicacionId,
+                categoria);
+    }
+
     // ---------- visitas ----------
 
     /** El equipo llegó al sitio. Si ya hay una visita en curso de hoy, no hace nada. */
@@ -260,11 +356,8 @@ public class ProyectoService {
         List<InformeTecnicoUbicacion> ubis = informe != null ? informe.getUbicaciones() : List.of();
         Map<UUID, UUID> fotosUbi = informes.fotosPorUbicacion(ubis.stream().map(InformeTecnicoUbicacion::getId).toList());
         Map<UUID, Integer> numeroUbi = new HashMap<>();
-        List<UbicacionProyecto> ubicaciones = new ArrayList<>();
         for (int i = 0; i < ubis.size(); i++) {
-            var u = ubis.get(i);
-            numeroUbi.put(u.getId(), i + 1);
-            ubicaciones.add(new UbicacionProyecto(u.getId(), i + 1, u.getNota(), fotosUbi.get(u.getId())));
+            numeroUbi.put(ubis.get(i).getId(), i + 1);
         }
 
         List<InstruccionVersion> vs = versiones.findByProyectoIdOrderByNumeroVersionDesc(p.getId());
@@ -276,6 +369,9 @@ public class ProyectoService {
         if (!vis.isEmpty()) {
             for (Object[] fila : tareas.avancePorVisita(numeroVisita.keySet())) {
                 hechasPorVisita.put((UUID) fila[0], ((Long) fila[1]).intValue());
+            }
+            for (Object[] fila : checklist.avancePorVisita(numeroVisita.keySet())) {
+                hechasPorVisita.merge((UUID) fila[0], ((Long) fila[1]).intValue(), Integer::sum);
             }
         }
         List<ProyectoDtos.Visita> visitasDto = vis.stream().map(v -> new ProyectoDtos.Visita(v.getId(),
@@ -303,6 +399,27 @@ public class ProyectoService {
                     t.getCompletadaEnVisitaId() != null ? numeroVisita.get(t.getCompletadaEnVisitaId()) : null,
                     t.getVersion());
         }).toList();
+
+        // Ubicaciones: con checklist, sus puntos, sus fotos y si quedó completada (siempre calculado).
+        Map<UUID, List<ProyectoChecklistItem>> puntos = checklist.findByProyectoIdOrderByOrdenAsc(p.getId()).stream()
+                .collect(Collectors.groupingBy(i -> i.getUbicacion().getId()));
+        Map<UUID, Map<String, List<UUID>>> fotosDeUbicacion = evidenciaDe(ENTIDAD_UBICACION, List.copyOf(puntos.keySet()));
+        List<UbicacionProyecto> ubicaciones = new ArrayList<>();
+        for (InformeTecnicoUbicacion u : ubis) {
+            List<ProyectoChecklistItem> deAqui = puntos.getOrDefault(u.getId(), List.of());
+            var fotos = fotosDeUbicacion.getOrDefault(u.getId(), Map.of());
+            List<UUID> antes = fotos.getOrDefault(FOTO_ANTES, List.of());
+            List<UUID> despues = fotos.getOrDefault(FOTO_DESPUES, List.of());
+            int pendientes = (int) tareasDto.stream()
+                    .filter(t -> u.getId().equals(t.ubicacionId()) && t.estado() == EstadoTarea.PENDIENTE).count();
+            int marcados = (int) deAqui.stream().filter(ProyectoChecklistItem::isMarcado).count();
+            ubicaciones.add(new UbicacionProyecto(u.getId(), numeroUbi.get(u.getId()), u.getNota(), fotosUbi.get(u.getId()),
+                    deAqui.stream().map(i -> new ItemChecklist(i.getId(), i.getTexto(), i.isMarcado(),
+                            i.getMarcadoPor() != null ? i.getMarcadoPor().getNombre() : null, i.getMarcadoEn(),
+                            i.getMarcadoEnVisitaId() != null ? numeroVisita.get(i.getMarcadoEnVisitaId()) : null)).toList(),
+                    antes, despues,
+                    ReglaUbicacion.completada(deAqui.size(), marcados, antes.size(), despues.size(), pendientes)));
+        }
 
         List<Evento> bitacora = eventos.findByProyectoIdOrderByFechaDesc(p.getId()).stream()
                 .map(e -> new Evento(e.getTipo(), e.getUsuarioNombre(), e.getDetalle(), e.getFecha()))
@@ -398,13 +515,16 @@ public class ProyectoService {
 
     /** Fotos de antes y después de cada tarea, de la más antigua a la más nueva. */
     private Map<UUID, Map<String, List<UUID>>> evidencia(List<UUID> tareaIds) {
-        if (tareaIds.isEmpty()) {
+        return evidenciaDe(ENTIDAD_TAREA, tareaIds);
+    }
+
+    private Map<UUID, Map<String, List<UUID>>> evidenciaDe(String entidad, List<UUID> ids) {
+        if (ids.isEmpty()) {
             return Map.of();
         }
         List<ArchivoAdjunto> todas = new ArrayList<>();
         for (String cat : List.of(FOTO_ANTES, FOTO_DESPUES)) {
-            todas.addAll(archivosRepo.findByEntidadTipoAndEntidadIdInAndCategoriaAndDeletedAtIsNull(
-                    ENTIDAD_TAREA, tareaIds, cat));
+            todas.addAll(archivosRepo.findByEntidadTipoAndEntidadIdInAndCategoriaAndDeletedAtIsNull(entidad, ids, cat));
         }
         return todas.stream()
                 .sorted(Comparator.comparing(ArchivoAdjunto::getCreatedAt))
