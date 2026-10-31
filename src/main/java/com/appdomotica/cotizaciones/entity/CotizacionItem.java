@@ -3,28 +3,54 @@ package com.appdomotica.cotizaciones.entity;
 import com.appdomotica.catalogo.entity.ProductoCatalogo;
 import com.appdomotica.catalogo.entity.Proveedor;
 import jakarta.persistence.*;
-import java.math.BigDecimal;
+import lombok.Getter;
+import lombok.Setter;
 
+import java.math.BigDecimal;
+import java.util.UUID;
+
+/**
+ * Fotografía de un ítem al momento de cotizar (RF-COT-04): nada aquí se recalcula
+ * desde el catálogo ni desde el historial de precios.
+ */
+@Getter
+@Setter
 @Entity
 @Table(name = "cotizacion_items")
 public class CotizacionItem {
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Integer id;
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private UUID id;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "cotizacion_id")
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "cotizacion_id", nullable = false)
     private Cotizacion cotizacion;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "producto_id")
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "producto_id", nullable = false)
     private ProductoCatalogo producto;
+
+    /** Nombre del producto tal como se cotizó (el catálogo puede cambiar después). */
+    @Column(name = "producto_nombre")
+    private String productoNombre;
+
+    /** Producto que este ítem reemplaza (el proveedor no tenía el pedido), para ver la diferencia con el informe. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "producto_original_id")
+    private ProductoCatalogo productoOriginal;
+
+    @Column(name = "producto_original_nombre")
+    private String productoOriginalNombre;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "proveedor_id")
     private Proveedor proveedor;
 
+    @Column(nullable = false)
     private Integer cantidad;
+
+    @Column(nullable = false)
+    private Integer orden = 0;
 
     @Column(name = "precio_neto")
     private BigDecimal precioNeto;
@@ -32,27 +58,16 @@ public class CotizacionItem {
     @Column(name = "margen_porcentaje")
     private BigDecimal margenPorcentaje;
 
+    /** Precio unitario de venta sin IVA. */
     @Column(name = "precio_venta")
     private BigDecimal precioVenta;
 
+    /** Subtotal sin IVA. */
     private BigDecimal subtotal;
 
-    public Integer getId() { return id; }
-    public void setId(Integer id) { this.id = id; }
-    public Cotizacion getCotizacion() { return cotizacion; }
-    public void setCotizacion(Cotizacion cotizacion) { this.cotizacion = cotizacion; }
-    public ProductoCatalogo getProducto() { return producto; }
-    public void setProducto(ProductoCatalogo producto) { this.producto = producto; }
-    public Proveedor getProveedor() { return proveedor; }
-    public void setProveedor(Proveedor proveedor) { this.proveedor = proveedor; }
-    public Integer getCantidad() { return cantidad; }
-    public void setCantidad(Integer cantidad) { this.cantidad = cantidad; }
-    public BigDecimal getPrecioNeto() { return precioNeto; }
-    public void setPrecioNeto(BigDecimal precioNeto) { this.precioNeto = precioNeto; }
-    public BigDecimal getMargenPorcentaje() { return margenPorcentaje; }
-    public void setMargenPorcentaje(BigDecimal margenPorcentaje) { this.margenPorcentaje = margenPorcentaje; }
-    public BigDecimal getPrecioVenta() { return precioVenta; }
-    public void setPrecioVenta(BigDecimal precioVenta) { this.precioVenta = precioVenta; }
-    public BigDecimal getSubtotal() { return subtotal; }
-    public void setSubtotal(BigDecimal subtotal) { this.subtotal = subtotal; }
+    @Column(name = "monto_iva")
+    private BigDecimal montoIva;
+
+    @Column(name = "subtotal_con_iva")
+    private BigDecimal subtotalConIva;
 }
