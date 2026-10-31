@@ -9,6 +9,7 @@ import org.springframework.security.core.userdetails.UserDetails;
 
 import java.util.Collection;
 import java.util.Collections;
+import java.util.UUID;
 
 @AllArgsConstructor
 public class CustomUserDetails implements UserDetails {
@@ -51,7 +52,7 @@ public class CustomUserDetails implements UserDetails {
         return usuario.getActivo() != null ? usuario.getActivo() : true;
     }
 
-    public Integer getId() {
+    public UUID getId() {
         return usuario.getId();
     }
 

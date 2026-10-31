@@ -1,0 +1,9 @@
+target/
+.git
+.mvn/wrapper/maven-wrapper.jar
+*.log
+*.sh
+schema.dbml
+.idea
+.vscode
+*.class

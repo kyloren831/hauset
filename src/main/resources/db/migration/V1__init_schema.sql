@@ -1,5 +1,7 @@
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
 CREATE TABLE usuarios (
-    id SERIAL PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     nombre VARCHAR,
     rol VARCHAR,
     telefono VARCHAR,
@@ -8,7 +10,7 @@ CREATE TABLE usuarios (
 );
 
 CREATE TABLE clientes (
-    id SERIAL PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     nombre VARCHAR,
     telefono VARCHAR,
     password_hash VARCHAR,
@@ -17,69 +19,72 @@ CREATE TABLE clientes (
 );
 
 CREATE TABLE leads (
-    id SERIAL PRIMARY KEY,
-    cliente_id INTEGER REFERENCES clientes(id),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    cliente_id UUID REFERENCES clientes(id),
     origen VARCHAR DEFAULT 'whatsapp',
     fecha TIMESTAMP,
     estado VARCHAR
 );
 
 CREATE TABLE proveedores (
-    id SERIAL PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     nombre VARCHAR,
     categorias_asociadas VARCHAR,
-    contacto VARCHAR
+    contacto VARCHAR,
+    activo BOOLEAN DEFAULT true
 );
 
 CREATE TABLE catalogo_productos (
-    id SERIAL PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     nombre VARCHAR,
     categoria VARCHAR,
-    especificacion TEXT
+    especificacion TEXT,
+    activo BOOLEAN DEFAULT true
 );
 
 CREATE TABLE precios_historial (
-    id SERIAL PRIMARY KEY,
-    producto_id INTEGER REFERENCES catalogo_productos(id),
-    proveedor_id INTEGER REFERENCES proveedores(id),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    producto_id UUID REFERENCES catalogo_productos(id),
+    proveedor_id UUID REFERENCES proveedores(id),
     precio_neto DECIMAL,
     disponible BOOLEAN,
-    registrado_por INTEGER REFERENCES usuarios(id),
+    registrado_por UUID REFERENCES usuarios(id),
     fecha TIMESTAMP
 );
 
 CREATE TABLE informes_tecnicos (
-    id SERIAL PRIMARY KEY,
-    lead_id INTEGER REFERENCES leads(id),
-    ingeniero_id INTEGER REFERENCES usuarios(id),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    lead_id UUID REFERENCES leads(id),
+    ingeniero_id UUID REFERENCES usuarios(id),
     notas TEXT,
     fecha TIMESTAMP
 );
 
 CREATE TABLE informe_tecnico_items (
-    id SERIAL PRIMARY KEY,
-    informe_id INTEGER REFERENCES informes_tecnicos(id),
-    producto_id INTEGER REFERENCES catalogo_productos(id),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    informe_id UUID REFERENCES informes_tecnicos(id),
+    producto_id UUID REFERENCES catalogo_productos(id),
     cantidad INTEGER
 );
 
 CREATE TABLE cotizaciones (
-    id SERIAL PRIMARY KEY,
-    informe_id INTEGER REFERENCES informes_tecnicos(id),
-    cliente_id INTEGER REFERENCES clientes(id),
-    armada_por INTEGER REFERENCES usuarios(id),
-    margen_definido_por INTEGER REFERENCES usuarios(id),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    informe_id UUID REFERENCES informes_tecnicos(id),
+    cliente_id UUID REFERENCES clientes(id),
+    armada_por UUID REFERENCES usuarios(id),
+    margen_definido_por UUID REFERENCES usuarios(id),
     fecha TIMESTAMP,
     estado VARCHAR,
     total DECIMAL,
-    pdf_url VARCHAR
+    pdf_url VARCHAR,
+    version BIGINT NOT NULL DEFAULT 1
 );
 
 CREATE TABLE cotizacion_items (
-    id SERIAL PRIMARY KEY,
-    cotizacion_id INTEGER REFERENCES cotizaciones(id),
-    producto_id INTEGER REFERENCES catalogo_productos(id),
-    proveedor_id INTEGER REFERENCES proveedores(id),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    cotizacion_id UUID REFERENCES cotizaciones(id),
+    producto_id UUID REFERENCES catalogo_productos(id),
+    proveedor_id UUID REFERENCES proveedores(id),
     cantidad INTEGER,
     precio_neto DECIMAL,
     margen_porcentaje DECIMAL,
@@ -88,20 +93,21 @@ CREATE TABLE cotizacion_items (
 );
 
 CREATE TABLE cotizacion_extras (
-    id SERIAL PRIMARY KEY,
-    cotizacion_id INTEGER REFERENCES cotizaciones(id),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    cotizacion_id UUID REFERENCES cotizaciones(id),
     motivo TEXT,
     estado VARCHAR,
-    confirmado_por INTEGER REFERENCES usuarios(id),
+    confirmado_por UUID REFERENCES usuarios(id),
     fecha TIMESTAMP,
-    total_extra DECIMAL
+    total_extra DECIMAL,
+    version BIGINT NOT NULL DEFAULT 1
 );
 
 CREATE TABLE cotizacion_extra_items (
-    id SERIAL PRIMARY KEY,
-    extra_id INTEGER REFERENCES cotizacion_extras(id),
-    producto_id INTEGER REFERENCES catalogo_productos(id),
-    proveedor_id INTEGER REFERENCES proveedores(id),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    extra_id UUID REFERENCES cotizacion_extras(id),
+    producto_id UUID REFERENCES catalogo_productos(id),
+    proveedor_id UUID REFERENCES proveedores(id),
     cantidad INTEGER,
     precio_neto DECIMAL,
     margen_porcentaje DECIMAL,

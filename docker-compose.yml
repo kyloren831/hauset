@@ -1,13 +1,18 @@
 services:
   backend:
     build: .
+    restart: on-failure
     environment:
       - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/app_domotica
       - SPRING_DATASOURCE_USERNAME=postgres
       - SPRING_DATASOURCE_PASSWORD=postgres
       - SPRING_JPA_HIBERNATE_DDL_AUTO=validate
+      - STORAGE_DISK_PATH=/var/hauset/storage
+    volumes:
+      - hauset-storage-data:/var/hauset/storage
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     networks:
       - domotica-net
 
@@ -19,8 +24,15 @@ services:
       - POSTGRES_PASSWORD=postgres
     volumes:
       - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
     networks:
       - domotica-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d app_domotica"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   minio:
     image: minio/minio
@@ -30,6 +42,9 @@ services:
       - MINIO_ROOT_PASSWORD=password
     volumes:
       - minio-data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
     networks:
       - domotica-net
 
@@ -47,6 +62,7 @@ services:
 volumes:
   postgres-data:
   minio-data:
+  hauset-storage-data:
 
 networks:
   domotica-net:
