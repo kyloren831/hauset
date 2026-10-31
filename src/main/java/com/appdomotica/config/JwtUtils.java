@@ -1,8 +1,11 @@
 package com.appdomotica.config;
 
-import io.jsonwebtoken.*;
+import com.appdomotica.usuarios.entity.Usuario;
+import io.jsonwebtoken.JwtException;
+import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
+import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Component;
@@ -15,17 +18,31 @@ import java.util.Map;
 @Component
 public class JwtUtils {
 
-    @Value("${app.jwtSecret:======================AppDomotica=Secret=Key======================}")
+    /** Base64 de al menos 32 bytes. Sin valor por defecto: si falta, la aplicación no arranca. */
+    @Value("${app.jwtSecret}")
     private String jwtSecret;
 
-    @Value("${app.jwtExpirationMs:3600000}")
-    private int jwtExpirationMs;
+    @Value("${app.jwtExpirationMs:900000}")
+    private long jwtExpirationMs;
+
+    private SecretKey key;
+
+    @PostConstruct
+    void init() {
+        byte[] bytes;
+        try {
+            bytes = Decoders.BASE64.decode(jwtSecret);
+        } catch (RuntimeException e) {
+            throw new IllegalStateException("app.jwtSecret debe estar en Base64", e);
+        }
+        if (bytes.length < 32) {
+            throw new IllegalStateException("app.jwtSecret debe tener al menos 32 bytes (256 bits)");
+        }
+        key = Keys.hmacShaKeyFor(bytes);
+    }
 
     public String generateJwtToken(Authentication authentication) {
-        // 1. Extraer el usuario principal del objeto Authentication
         CustomUserDetails userPrincipal = (CustomUserDetails) authentication.getPrincipal();
-
-        // 2. Definir los atributos adicionales que quieres guardar en el JWT (Claims)
         Map<String, Object> claims = new HashMap<>();
         claims.put("id", userPrincipal.getId());
         claims.put("nombre", userPrincipal.getNombre());
@@ -34,36 +51,38 @@ public class JwtUtils {
         return generateTokenWithClaims(userPrincipal.getUsername(), claims);
     }
 
-    public String generateTokenFromUsername(String username) {
-        return generateTokenWithClaims(username, new HashMap<>());
+    public String generateTokenFromUsuario(Usuario usuario) {
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("id", usuario.getId());
+        claims.put("nombre", usuario.getNombre());
+        claims.put("rol", usuario.getRol().name());
+
+        return generateTokenWithClaims(usuario.getTelefono(), claims);
     }
 
     private String generateTokenWithClaims(String username, Map<String, Object> claims) {
+        long now = System.currentTimeMillis();
         return Jwts.builder()
                 .claims(claims)
                 .subject(username)
-                .issuedAt(new Date())
-                .expiration(new Date((new Date()).getTime() + jwtExpirationMs))
-                .signWith(key())
+                .issuedAt(new Date(now))
+                .expiration(new Date(now + jwtExpirationMs))
+                .signWith(key)
                 .compact();
     }
 
-    private SecretKey key() {
-        return Keys.hmacShaKeyFor(Decoders.BASE64.decode(jwtSecret));
-    }
-
+    /** Devuelve el teléfono (subject) o lanza JwtException si el token es inválido o expiró. */
     public String getUsernameFromToken(String token) {
-        return Jwts.parser().verifyWith(key()).build()
+        return Jwts.parser().verifyWith(key).build()
                    .parseSignedClaims(token).getPayload().getSubject();
     }
 
     public boolean validateToken(String authToken) {
         try {
-            Jwts.parser().verifyWith(key()).build().parseSignedClaims(authToken);
+            Jwts.parser().verifyWith(key).build().parseSignedClaims(authToken);
             return true;
-        } catch (JwtException e) {
-            // log error
+        } catch (JwtException | IllegalArgumentException e) {
+            return false;
         }
-        return false;
     }
 }
