@@ -31,3 +31,15 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### Informe Repository ###
+informe/
+
+# Secretos locales
+.env*
+!.env.example
+storage_data/
+.claves-usuarios-prueba
+stage/
+storage_stage/
+.claves-stage
