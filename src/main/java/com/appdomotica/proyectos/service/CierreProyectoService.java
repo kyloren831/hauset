@@ -30,7 +30,8 @@ import java.util.UUID;
 /**
  * Cierre del proyecto (RN-07, RF-PRY-13) y reporte de entrega (RF-PRY-15).
  *
- * Se cierra solo si todas las tareas vigentes están completadas o "no aplica", no hay cambios de
+ * Se cierra solo si todas las tareas vigentes están completadas o "no aplica", las ubicaciones con checklist
+ * están completadas (todos los puntos marcados y fotos de antes y después), no hay cambios de
  * instrucción ni extras sin confirmar, y el cliente firma. En la misma transacción: firma ligada a la
  * visita en curso, visita terminada, visitas por venir canceladas, proyecto cerrado, fecha de instalación de
  * los equipos y PDF guardado.
@@ -76,6 +77,8 @@ public class CierreProyectoService {
         if (pendientes > 0) {
             faltan.add(pendientes == 1 ? "Falta 1 tarea por completar" : "Faltan " + pendientes + " tareas por completar");
         }
+        // Ubicaciones con checklist: todos los puntos marcados y fotos de antes y después (se calcula).
+        faltan.addAll(proyectos.faltaEnUbicaciones(p));
         faltan.addAll(proyectos.bloqueosCierre(p));
         if (!faltan.isEmpty()) {
             throw new ConflictException("No se puede cerrar: " + String.join("; ", faltan).toLowerCase() + ".");

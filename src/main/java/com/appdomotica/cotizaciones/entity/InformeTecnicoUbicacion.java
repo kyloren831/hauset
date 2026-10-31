@@ -8,7 +8,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
-/** Un punto de la instalación: foto marcada (archivo adjunto), nota y los productos que van ahí. */
+/**
+ * Un punto de la instalación: foto marcada (archivo adjunto), nota, los productos que van ahí y,
+ * opcionalmente, su propia checklist.
+ */
 @Getter
 @Setter
 @Entity
@@ -31,4 +34,9 @@ public class InformeTecnicoUbicacion {
     @OneToMany(mappedBy = "ubicacion", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("orden ASC")
     private List<InformeTecnicoItem> items = new ArrayList<>();
+
+    /** Vacía = la ubicación se trabaja como siempre (una tarea por producto). */
+    @OneToMany(mappedBy = "ubicacion", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("orden ASC")
+    private List<InformeUbicacionChecklistItem> checklist = new ArrayList<>();
 }

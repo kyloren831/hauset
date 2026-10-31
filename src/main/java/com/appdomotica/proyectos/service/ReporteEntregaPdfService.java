@@ -1,6 +1,7 @@
 package com.appdomotica.proyectos.service;
 
 import com.appdomotica.proyectos.dto.ProyectoDtos.Firma;
+import com.appdomotica.proyectos.dto.ProyectoDtos.ItemChecklist;
 import com.appdomotica.proyectos.dto.ProyectoDtos.ProyectoDetalle;
 import com.appdomotica.proyectos.dto.ProyectoDtos.Tarea;
 import com.appdomotica.proyectos.dto.ProyectoDtos.UbicacionProyecto;
@@ -206,9 +207,14 @@ public class ReporteEntregaPdfService {
         doc.add(seccion("Trabajo realizado"));
         for (UbicacionProyecto u : p.ubicaciones()) {
             List<Tarea> deAqui = p.tareas().stream().filter(t -> u.id().equals(t.ubicacionId())).toList();
-            if (!deAqui.isEmpty()) {
-                grupo(doc, "Ubicación " + u.numero() + (u.nota() != null && !u.nota().isBlank() ? ": " + u.nota() : ""),
-                        deAqui, archivo);
+            String titulo = "Ubicación " + u.numero() + (u.nota() != null && !u.nota().isBlank() ? ": " + u.nota() : "");
+            if (!u.checklist().isEmpty()) {
+                checklist(doc, titulo, u, archivo);
+                for (Tarea t : deAqui) {
+                    doc.add(tarea(t, archivo));
+                }
+            } else if (!deAqui.isEmpty()) {
+                grupo(doc, titulo, deAqui, archivo);
             }
         }
         List<Tarea> generales = p.tareas().stream().filter(t -> t.ubicacionId() == null).toList();
@@ -225,6 +231,42 @@ public class ReporteEntregaPdfService {
         for (Tarea t : tareas) {
             doc.add(tarea(t, archivo));
         }
+    }
+
+    /** Ubicación con checklist: sus puntos (marcado, quién y cuándo) y las fotos de antes y después de la ubicación. */
+    private void checklist(Document doc, String titulo, UbicacionProyecto u, Function<UUID, byte[]> archivo) {
+        long marcados = u.checklist().stream().filter(ItemChecklist::marcado).count();
+        Paragraph h = new Paragraph();
+        h.add(new Chunk(titulo, SUBSECCION));
+        h.add(new Chunk("   " + marcados + " de " + u.checklist().size() + (u.completada() ? " · COMPLETADA" : ""),
+                u.completada() ? HECHA : PEQUENA));
+        h.setSpacingBefore(6);
+        h.setSpacingAfter(4);
+        doc.add(h);
+
+        PdfPTable caja = new PdfPTable(1);
+        caja.setWidthPercentage(100);
+        caja.setSpacingAfter(6);
+        PdfPCell c = new PdfPCell();
+        c.setBorderColor(LILA);
+        c.setPadding(7);
+        for (ItemChecklist i : u.checklist()) {
+            Paragraph linea = new Paragraph();
+            linea.add(new Chunk((i.marcado() ? "[x] " : "[  ] ") + i.texto(), i.marcado() ? NORMAL : PEQUENA));
+            if (i.marcado() && i.marcadoPor() != null) {
+                linea.add(new Chunk("   " + i.marcadoPor() + " · " + fechaHora(i.marcadoEn())
+                        + (i.visitaNumero() != null ? " · visita " + i.visitaNumero() : ""), PEQUENA));
+            }
+            c.addElement(linea);
+        }
+        PdfPTable fotos = new PdfPTable(2);
+        fotos.setWidthPercentage(100);
+        fotos.setSpacingBefore(5);
+        fotos.addCell(momento("Antes", u.fotosAntes(), archivo));
+        fotos.addCell(momento("Después", u.fotosDespues(), archivo));
+        c.addElement(fotos);
+        caja.addCell(c);
+        doc.add(caja);
     }
 
     private PdfPTable tarea(Tarea t, Function<UUID, byte[]> archivo) {

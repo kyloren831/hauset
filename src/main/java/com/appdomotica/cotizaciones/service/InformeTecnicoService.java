@@ -18,6 +18,7 @@ import com.appdomotica.cotizaciones.entity.Cotizacion;
 import com.appdomotica.cotizaciones.entity.InformeTecnico;
 import com.appdomotica.cotizaciones.entity.InformeTecnicoItem;
 import com.appdomotica.cotizaciones.entity.InformeTecnicoUbicacion;
+import com.appdomotica.cotizaciones.entity.InformeUbicacionChecklistItem;
 import com.appdomotica.cotizaciones.repository.CotizacionRepository;
 import com.appdomotica.cotizaciones.repository.InformeTecnicoRepository;
 import com.appdomotica.multimedia.entity.ArchivoAdjunto;
@@ -37,7 +38,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * Informe técnico por ubicaciones (foto marcada, nota y productos), sin precios (RF-COT-02).
+ * Informe técnico por ubicaciones (foto marcada, nota, productos y checklist opcional), sin precios (RF-COT-02).
  * No se modifica: se corrige creando una versión nueva (v.1, v.2, ...). Cada versión puede tener
  * una cotización.
  */
@@ -249,6 +250,7 @@ public class InformeTecnicoService {
             u.setNota(r.nota() == null || r.nota().isBlank() ? null : r.nota().trim());
             u.setOrden(orden++);
             agregarItems(informe, u, r.items());
+            agregarChecklist(u, r.checklist());
             informe.getUbicaciones().add(u);
         }
     }
@@ -276,6 +278,25 @@ public class InformeTecnicoService {
             item.setCantidad(p.cantidad());
             item.setOrden(orden++);
             u.getItems().add(item);
+        }
+    }
+
+    /** Checklist opcional de la ubicación, en el orden pedido. */
+    private static void agregarChecklist(InformeTecnicoUbicacion u, List<String> puntos) {
+        if (puntos == null) {
+            return;
+        }
+        int orden = 0;
+        for (String p : puntos) {
+            String texto = p == null ? "" : p.trim();
+            if (texto.isEmpty()) {
+                throw new BadRequestException("Un punto de la checklist no puede quedar vacío");
+            }
+            InformeUbicacionChecklistItem item = new InformeUbicacionChecklistItem();
+            item.setUbicacion(u);
+            item.setTexto(texto);
+            item.setOrden(orden++);
+            u.getChecklist().add(item);
         }
     }
 

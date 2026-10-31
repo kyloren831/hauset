@@ -44,7 +44,15 @@ public final class CotizacionDtos {
     public record UbicacionRequest(
             UUID fotoDe,
             @Size(max = 2000, message = "La nota no puede pasar de 2000 caracteres") String nota,
-            @NotEmpty(message = "Cada ubicación necesita al menos un producto") List<@Valid ItemInformeRequest> items) {
+            @NotEmpty(message = "Cada ubicación necesita al menos un producto") List<@Valid ItemInformeRequest> items,
+            /** Checklist opcional de la ubicación, en orden. Vacía o ausente = una tarea por producto, como siempre. */
+            @Size(max = 50, message = "La checklist de una ubicación admite como mucho 50 puntos")
+            List<@NotBlank(message = "Un punto de la checklist no puede quedar vacío")
+                 @Size(max = 300, message = "Cada punto de la checklist admite como mucho 300 caracteres") String> checklist) {
+        /** Ubicación sin checklist. */
+        public UbicacionRequest(UUID fotoDe, String nota, List<ItemInformeRequest> items) {
+            this(fotoDe, nota, items, null);
+        }
     }
 
     public record InformeRequest(
@@ -78,10 +86,13 @@ public final class CotizacionDtos {
     }
 
     /** `fotoId`: foto con las marcas ya dibujadas, descargable en /api/v1/archivos/{id}/descargar. */
-    public record UbicacionResponse(UUID id, String nota, UUID fotoId, List<ItemInformeResponse> items) {
+    /** `checklist`: puntos de la checklist de la ubicación, en orden (vacía si no tiene). */
+    public record UbicacionResponse(UUID id, String nota, UUID fotoId, List<ItemInformeResponse> items,
+                                    List<String> checklist) {
         static UbicacionResponse de(InformeTecnicoUbicacion u, Map<UUID, UUID> fotoPorUbicacion) {
             return new UbicacionResponse(u.getId(), u.getNota(), fotoPorUbicacion.get(u.getId()),
-                    u.getItems().stream().map(ItemInformeResponse::de).toList());
+                    u.getItems().stream().map(ItemInformeResponse::de).toList(),
+                    u.getChecklist().stream().map(c -> c.getTexto()).toList());
         }
     }
 

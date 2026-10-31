@@ -72,6 +72,7 @@ public class CotizacionService {
     private final InstruccionVersionRepository instrucciones;
     private final InstruccionItemRepository instruccionItems;
     private final ChecklistTareaRepository tareas;
+    private final com.appdomotica.proyectos.repository.ProyectoChecklistItemRepository checklistProyecto;
     private final com.appdomotica.proyectos.repository.ProyectoEventoRepository eventosProyecto;
     private final com.appdomotica.tareas.service.TareaEquipoService tareasEquipo;
 
@@ -396,6 +397,10 @@ public class CotizacionService {
      * Una tarea por producto y ubicación del informe técnico, para que el instalador sepa dónde va cada
      * equipo. Un producto que reemplaza a otro va donde iba el original. Lo cotizado de más (o que no está
      * en el informe) queda como tarea general.
+     *
+     * Una ubicación con checklist propia no genera tareas por producto: sus puntos se copian al proyecto
+     * (la copia no cambia aunque después se cree otra versión del informe). Sus productos igual se descuentan
+     * de lo cotizado para que no reaparezcan como tareas generales.
      */
     private void crearTareas(InstruccionVersion v1, Cotizacion c) {
         List<InformeTecnicoUbicacion> ubicaciones = c.getInforme() != null ? c.getInforme().getUbicaciones() : List.of();
@@ -412,6 +417,10 @@ public class CotizacionService {
             }
         }
         for (InformeTecnicoUbicacion u : ubicaciones) {
+            boolean conChecklist = !u.getChecklist().isEmpty();
+            if (conChecklist) {
+                copiarChecklist(v1.getProyecto(), u);
+            }
             for (InformeTecnicoItem it : u.getItems()) {
                 UUID pedido = it.getProducto().getId();
                 UUID prod = pendiente.getOrDefault(pedido, 0) > 0 ? pedido : reemplazo.getOrDefault(pedido, pedido);
@@ -421,13 +430,27 @@ public class CotizacionService {
                     continue;
                 }
                 pendiente.put(prod, quedan - n);
-                tareas.save(tarea(v1, porProducto.get(prod), n, u, orden++));
+                if (!conChecklist) {
+                    tareas.save(tarea(v1, porProducto.get(prod), n, u, orden++));
+                }
             }
         }
         for (var e : pendiente.entrySet()) {
             if (e.getValue() > 0) {
                 tareas.save(tarea(v1, porProducto.get(e.getKey()), e.getValue(), null, orden++));
             }
+        }
+    }
+
+    private void copiarChecklist(Proyecto proyecto, InformeTecnicoUbicacion u) {
+        for (var punto : u.getChecklist()) {
+            ProyectoChecklistItem item = new ProyectoChecklistItem();
+            item.setProyecto(proyecto);
+            item.setUbicacion(u);
+            item.setOrigenItemId(punto.getId());
+            item.setTexto(punto.getTexto());
+            item.setOrden(punto.getOrden());
+            checklistProyecto.save(item);
         }
     }
 
