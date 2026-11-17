@@ -344,13 +344,15 @@ class ChecklistUbicacionIntegrationTest {
     }
 
     @Test
-    void laCopiaNoCambiaSiSeEditaElInforme() throws Exception {
+    void laCopiaSigueLaVersionNuevaDelInforme() throws Exception {
         UUID p = proyecto();
         JsonNode antes = ubicacion(detalle(p), 1).get("checklist");
 
-        // Una versión nueva del informe con otra checklist no toca el proyecto ya creado.
+        // Una versión nueva del informe con otra checklist actualiza el proyecto (RF-COT-22): sin marcas, los
+        // puntos viejos se quitan y queda el nuevo.
         JsonNode v1 = llamar(get("/api/informes/" + informeId), jefe, null).body();
         Map<String, Object> ubi = new java.util.HashMap<>();
+        ubi.put("desde", v1.get("ubicaciones").get(0).get("id").asText());
         ubi.put("nota", "Cuarto de rack");
         ubi.put("items", List.of(Map.of("productoId", v1.get("ubicaciones").get(0).get("items").get(0).get("productoId").asText(),
                 "cantidad", 1)));
@@ -359,7 +361,10 @@ class ChecklistUbicacionIntegrationTest {
         assertEquals(201, v2.status(), String.valueOf(v2.body()));
         assertEquals(List.of("Otro punto"), json.convertValue(v2.body().get("ubicaciones").get(0).get("checklist"), List.class));
 
-        assertEquals(antes, ubicacion(detalle(p), 1).get("checklist"));
+        JsonNode despues = ubicacion(detalle(p), 1).get("checklist");
+        assertEquals(3, antes.size());
+        assertEquals(1, despues.size());
+        assertEquals("Otro punto", despues.get(0).get("texto").asText());
     }
 
     @Test

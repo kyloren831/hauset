@@ -40,6 +40,8 @@ public final class CotizacionDtos {
     /**
      * `fotoDe`: al crear una versión nueva, ubicación de una versión anterior cuya foto se copia
      * (vacío = sin foto, o se sube una nueva después).
+     * `desde`: al crear una versión nueva, ubicación de la versión de origen de la que sale esta (vacío = nueva).
+     * Sirve para seguir la ubicación entre versiones y actualizar el proyecto (RF-COT-22).
      */
     public record UbicacionRequest(
             UUID fotoDe,
@@ -48,10 +50,15 @@ public final class CotizacionDtos {
             /** Checklist opcional de la ubicación, en orden. Vacía o ausente = una tarea por producto, como siempre. */
             @Size(max = 50, message = "La checklist de una ubicación admite como mucho 50 puntos")
             List<@NotBlank(message = "Un punto de la checklist no puede quedar vacío")
-                 @Size(max = 300, message = "Cada punto de la checklist admite como mucho 300 caracteres") String> checklist) {
+                 @Size(max = 300, message = "Cada punto de la checklist admite como mucho 300 caracteres") String> checklist,
+            UUID desde) {
         /** Ubicación sin checklist. */
         public UbicacionRequest(UUID fotoDe, String nota, List<ItemInformeRequest> items) {
-            this(fotoDe, nota, items, null);
+            this(fotoDe, nota, items, null, null);
+        }
+
+        public UbicacionRequest(UUID fotoDe, String nota, List<ItemInformeRequest> items, List<String> checklist) {
+            this(fotoDe, nota, items, checklist, null);
         }
     }
 
@@ -102,17 +109,27 @@ public final class CotizacionDtos {
     }
 
     /**
+     * La cotización aceptada del informe (de cualquiera de sus versiones). Mientras exista, el informe no se
+     * vuelve a cotizar: una versión nueva actualiza esta cotización y su proyecto (RF-COT-22).
+     */
+    public record CotizacionAceptada(UUID cotizacionId, String numero, UUID proyectoId, boolean proyectoCerrado) {
+    }
+
+    /**
      * Una versión del informe. `versiones`: todas las del mismo informe (para elegir cuál ver);
-     * `cotizacion`: la de esta versión, si tiene. Las fotos se cambian solo mientras la versión no tenga
-     * cotización (`fotosEditables`); después, los cambios van en una versión nueva.
+     * `cotizacion`: la de esta versión, si tiene (o la que tuvo hasta que una versión nueva la reemplazó).
+     * Las fotos se cambian solo mientras la versión no tenga cotización (`fotosEditables`); después, los
+     * cambios van en una versión nueva. `aceptada`: la cotización aceptada del informe, si hay.
      */
     public record InformeResponse(UUID id, UUID grupoId, int numeroVersion, UUID leadId, UUID clienteId,
                                   String clienteNombre, String ingenieroNombre, String notas, OffsetDateTime fecha,
                                   List<UbicacionResponse> ubicaciones, List<TotalProductoResponse> totales,
-                                  VersionResumen cotizacion, List<VersionResumen> versiones, boolean fotosEditables) {
-        /** `conProyecto`: la cotización de esta versión ya se inició como proyecto. */
+                                  VersionResumen cotizacion, List<VersionResumen> versiones, boolean fotosEditables,
+                                  CotizacionAceptada aceptada) {
+        /** `fotosEditables`: lo decide el servicio (depende de la cotización, su proyecto y las demás versiones). */
         public static InformeResponse de(InformeTecnico i, Map<UUID, UUID> fotoPorUbicacion,
-                                         List<VersionResumen> versiones, boolean conProyecto) {
+                                         List<VersionResumen> versiones, boolean fotosEditables,
+                                         CotizacionAceptada aceptada) {
             VersionResumen propia = versiones.stream().filter(v -> v.id().equals(i.getId())).findFirst().orElse(null);
             VersionResumen cotizacion = propia != null && propia.cotizacionId() != null ? propia : null;
             var cliente = i.getLead().getCliente();
@@ -128,7 +145,7 @@ public final class CotizacionDtos {
                     cliente.getId(), cliente.getNombre(), i.getIngeniero().getNombre(), i.getNotas(), i.getFecha(),
                     i.getUbicaciones().stream().map(u -> UbicacionResponse.de(u, fotoPorUbicacion)).toList(),
                     List.copyOf(totales.values()), cotizacion, versiones,
-                    cotizacion == null || (i.isDesdeCotizacion() && !conProyecto));
+                    fotosEditables, aceptada);
         }
     }
 
@@ -170,6 +187,11 @@ public final class CotizacionDtos {
 
     public record RechazoRequest(@NotNull Long version,
                                  @NotBlank(message = "Indica el motivo del rechazo") String motivo) {
+    }
+
+    public record DesactivarRequest(@NotNull Long version,
+                                    @NotBlank(message = "Indica por qué se desactiva")
+                                    @Size(max = 2000) String motivo) {
     }
 
     public record IvaDefectoRequest(@NotNull @DecimalMin("0") @DecimalMax("100") BigDecimal porcentaje) {
@@ -256,7 +278,9 @@ public final class CotizacionDtos {
                                      OffsetDateTime fechaEnvio, OffsetDateTime fechaRespuesta, String motivoRechazo,
                                      UUID proyectoId, long version, List<ItemCotizacionResponse> items,
                                      Integer informeVersion, int revision, boolean editable, UUID leadId,
-                                     List<ExtraResponse> extras, TotalFacturado totalFacturado) {
+                                     List<ExtraResponse> extras, TotalFacturado totalFacturado,
+                                     String desactivadaPor, OffsetDateTime desactivadaEn,
+                                     String motivoDesactivacion) {
         public static CotizacionResponse de(Cotizacion c, UUID proyectoId) {
             return new CotizacionResponse(c.getId(), c.getNumero(), c.getEstado(), c.getCliente().getId(),
                     c.getCliente().getNombre(), c.getCliente().getTelefono(),
@@ -268,7 +292,9 @@ public final class CotizacionDtos {
                     c.getItems().stream().map(ItemCotizacionResponse::de).toList(),
                     c.getInforme() != null ? c.getInforme().getNumeroVersion() : null, c.getRevision(),
                     esEditable(c), c.getLead().getId(),
-                    c.getExtras().stream().map(ExtraResponse::de).toList(), TotalFacturado.de(c));
+                    c.getExtras().stream().map(ExtraResponse::de).toList(), TotalFacturado.de(c),
+                    c.getDesactivadaPor() != null ? c.getDesactivadaPor().getNombre() : null, c.getDesactivadaEn(),
+                    c.getMotivoDesactivacion());
         }
     }
 

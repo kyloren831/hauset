@@ -639,7 +639,8 @@ class CotizacionFlujoIntegrationTest {
         assertTrue(ids.contains(v2.body().get("id").asText()));
         assertFalse(ids.contains(v1));
 
-        // Cotización de la v.2; se envían las dos y el cliente acepta ambas (la decisión es cuál iniciar).
+        // Cotización de la v.2; se envían las dos. Un informe tiene como mucho una aceptada (RF-COT-21): aceptada
+        // la de la v.1, la de la v.2 ya no se acepta.
         Resp v2Cot = llamar(post("/api/cotizaciones"), secretaria, Map.of("informeId", v2.body().get("id").asText()));
         assertEquals(201, v2Cot.status());
         assertEquals(2, v2Cot.body().get("informeVersion").asInt());
@@ -651,7 +652,7 @@ class CotizacionFlujoIntegrationTest {
                         Map.of("productoId", cerradura, "proveedorId", provSeguridad, "cantidad", 1, "precioNeto", 96300))));
         JsonNode enviada2 = accion(margen(it2.body(), 30), "enviar", secretaria).body();
         assertEquals(200, accion(enviada1, "aceptar", secretaria).status());
-        assertEquals(200, accion(enviada2, "aceptar", secretaria).status());
+        assertEquals(409, accion(enviada2, "aceptar", secretaria).status());
 
         // El PDF sigue el formato de la proforma, con los datos de la empresa.
         MvcResult pdf = mvc.perform(get("/api/cotizaciones/" + enviada1.get("id").asText() + "/pdf")

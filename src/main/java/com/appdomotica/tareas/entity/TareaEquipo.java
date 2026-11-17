@@ -10,6 +10,8 @@ import lombok.Setter;
 
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.LinkedHashSet;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -46,9 +48,12 @@ public class TareaEquipo {
     @JoinColumn(name = "creada_por", nullable = false)
     private Usuario creadaPor;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "asignada_a")
-    private Usuario asignadaA;
+    /** Personas a cargo (ninguna, una o varias); cualquiera de ellas la puede marcar hecha. */
+    @ManyToMany(fetch = FetchType.LAZY)
+    @org.hibernate.annotations.BatchSize(size = 50)
+    @JoinTable(name = "tarea_equipo_asignadas", joinColumns = @JoinColumn(name = "tarea_id"),
+            inverseJoinColumns = @JoinColumn(name = "usuario_id"))
+    private Set<Usuario> asignadas = new LinkedHashSet<>();
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "lead_id")

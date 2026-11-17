@@ -10,18 +10,24 @@ import jakarta.validation.constraints.Size;
 
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.Comparator;
+import java.util.List;
 import java.util.UUID;
 
 public final class TareaEquipoDtos {
     private TareaEquipoDtos() {
     }
 
-    /** Ligar a lo sumo uno de los tres registros (RF-TAR-04). */
+    /**
+     * Ligar a lo sumo uno de los tres registros (RF-TAR-04). `asignadasAIds`: personas a cargo (vacía = nadie);
+     * `asignadaAId` se acepta todavía para las versiones de la app que asignaban a una sola persona.
+     */
     public record NuevaTareaRequest(
             @NotBlank @Size(max = 200) String titulo,
             @Size(max = 4000) String descripcion,
             LocalDate fechaLimite,
             UUID asignadaAId,
+            @Size(max = 20) List<UUID> asignadasAIds,
             boolean privada,
             UUID leadId,
             UUID cotizacionId,
@@ -34,6 +40,7 @@ public final class TareaEquipoDtos {
             @Size(max = 4000) String descripcion,
             LocalDate fechaLimite,
             UUID asignadaAId,
+            @Size(max = 20) List<UUID> asignadasAIds,
             boolean privada) {
     }
 
@@ -47,6 +54,9 @@ public final class TareaEquipoDtos {
         }
     }
 
+    public record PersonaAsignada(UUID id, String nombre) {
+    }
+
     /** Registro ligado; `tipo` es LEAD, COTIZACION o PROYECTO. */
     public record RegistroLigado(String tipo, UUID id, String etiqueta) {
     }
@@ -54,15 +64,19 @@ public final class TareaEquipoDtos {
     public record TareaResponse(
             UUID id, String titulo, String descripcion, EstadoTareaEquipo estado, boolean privada,
             LocalDate fechaLimite, UUID creadaPorId, String creadaPorNombre, UUID asignadaAId,
-            String asignadaANombre, OrigenTareaEquipo origen, String completadaPorNombre,
+            String asignadaANombre, List<PersonaAsignada> asignadas, OrigenTareaEquipo origen, String completadaPorNombre,
             OffsetDateTime completadaEn, RegistroLigado ligada, String aviso, OffsetDateTime createdAt,
             Long version) {
 
+        /** `asignadaAId`/`asignadaANombre`: la primera de `asignadas`, para las versiones viejas de la app. */
         public static TareaResponse de(TareaEquipo t) {
-            Usuario asignada = t.getAsignadaA();
+            List<PersonaAsignada> asignadas = t.getAsignadas().stream()
+                    .sorted(Comparator.comparing(Usuario::getNombre))
+                    .map(u -> new PersonaAsignada(u.getId(), u.getNombre())).toList();
+            PersonaAsignada primera = asignadas.isEmpty() ? null : asignadas.get(0);
             return new TareaResponse(t.getId(), t.getTitulo(), t.getDescripcion(), t.getEstado(), t.isPrivada(),
                     t.getFechaLimite(), t.getCreadaPor().getId(), t.getCreadaPor().getNombre(),
-                    asignada != null ? asignada.getId() : null, asignada != null ? asignada.getNombre() : null,
+                    primera != null ? primera.id() : null, primera != null ? primera.nombre() : null, asignadas,
                     t.getOrigen(), t.getCompletadaPor() != null ? t.getCompletadaPor().getNombre() : null,
                     t.getCompletadaEn(), ligada(t), aviso(t), t.getCreatedAt(), t.getVersion());
         }

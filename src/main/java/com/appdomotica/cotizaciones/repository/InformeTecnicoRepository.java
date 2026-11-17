@@ -22,6 +22,9 @@ public interface InformeTecnicoRepository extends JpaRepository<InformeTecnico, 
 
     List<InformeTecnico> findByGrupoIdInOrderByNumeroVersionAsc(Collection<UUID> grupos);
 
+    /** La cotización ya tuvo otra versión: la actual llegó con una versión nueva (RF-COT-22). */
+    boolean existsByReemplazadaEnCotizacionId(UUID cotizacionId);
+
     @Query("select coalesce(max(i.numeroVersion), 0) from InformeTecnico i where i.grupoId = :grupo")
     int ultimaVersion(@Param("grupo") UUID grupo);
 }

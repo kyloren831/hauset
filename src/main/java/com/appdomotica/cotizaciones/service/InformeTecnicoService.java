@@ -8,6 +8,7 @@ import com.appdomotica.common.dto.PageResponse;
 import com.appdomotica.common.exception.BadRequestException;
 import com.appdomotica.common.exception.ConflictException;
 import com.appdomotica.common.exception.ResourceNotFoundException;
+import com.appdomotica.cotizaciones.dto.CotizacionDtos.CotizacionAceptada;
 import com.appdomotica.cotizaciones.dto.CotizacionDtos.InformeRequest;
 import com.appdomotica.cotizaciones.dto.CotizacionDtos.InformeResponse;
 import com.appdomotica.cotizaciones.dto.CotizacionDtos.ItemInformeRequest;
@@ -40,7 +41,8 @@ import java.util.stream.Collectors;
 /**
  * Informe técnico por ubicaciones (foto marcada, nota, productos y checklist opcional), sin precios (RF-COT-02).
  * No se modifica: se corrige creando una versión nueva (v.1, v.2, ...). Cada versión puede tener
- * una cotización.
+ * una cotización. Si el informe ya tiene una cotización aceptada, la versión nueva no se cotiza aparte:
+ * actualiza esa cotización y su proyecto (RF-COT-22).
  */
 @Service
 @RequiredArgsConstructor
@@ -53,6 +55,7 @@ public class InformeTecnicoService {
     private final ArchivoAdjuntoService archivos;
     private final CotizacionService cotizacionService;
     private final com.appdomotica.proyectos.repository.ProyectoRepository proyectos;
+    private final com.appdomotica.proyectos.service.ActualizacionPorInformeService actualizacion;
 
     /** Foto de cada ubicación, con las marcas ya dibujadas encima. */
     public static final String ENTIDAD_UBICACION = "INFORME_TECNICO_UBICACION";
@@ -66,7 +69,8 @@ public class InformeTecnicoService {
                 .flatMap(i -> i.getUbicaciones().stream()).map(InformeTecnicoUbicacion::getId).toList());
         Map<UUID, List<VersionResumen>> versiones = versionesPorGrupo(
                 page.getContent().stream().map(InformeTecnico::getGrupoId).collect(Collectors.toSet()));
-        return PageResponse.from(page.map(i -> InformeResponse.de(i, fotos, versiones.get(i.getGrupoId()), conProyecto(i))));
+        return PageResponse.from(page.map(i -> InformeResponse.de(i, fotos, versiones.get(i.getGrupoId()), sinFotos(i) == null,
+                aceptada(i.getGrupoId()))));
     }
 
     /** Cualquier versión. */
@@ -100,11 +104,14 @@ public class InformeTecnicoService {
 
     /**
      * Crea la versión siguiente del mismo informe a partir de otra (cualquiera, no solo la última).
-     * La de origen y su cotización no cambian. Las ubicaciones con `fotoDe` copian esa foto.
+     * Las ubicaciones con `fotoDe` copian esa foto. Si el informe tiene una cotización aceptada, la versión
+     * nueva pasa a ser la de esa cotización y actualiza su proyecto (RF-COT-22); si no, la de origen y su
+     * cotización no cambian.
      */
     @Transactional
     public InformeResponse nuevaVersion(UUID desdeId, VersionInformeRequest req, Usuario ingeniero) {
         InformeTecnico origen = buscar(desdeId);
+        Optional<Cotizacion> aceptada = actualizacion.aceptadaParaVersionNueva(origen.getGrupoId());
         Set<UUID> ubicacionesDelGrupo = informes.findByGrupoIdInOrderByNumeroVersionAsc(Set.of(origen.getGrupoId()))
                 .stream().flatMap(i -> i.getUbicaciones().stream()).map(InformeTecnicoUbicacion::getId)
                 .collect(Collectors.toSet());
@@ -125,6 +132,8 @@ public class InformeTecnicoService {
                 copiarFoto(fotoDe, nueva.getUbicaciones().get(i).getId(), ingeniero);
             }
         }
+        InformeTecnico creada = nueva;
+        aceptada.ifPresent(c -> actualizacion.aplicar(c, creada, ingeniero));
         return respuesta(nueva);
     }
 
@@ -153,17 +162,33 @@ public class InformeTecnicoService {
 
     private InformeTecnico buscarSinCotizacion(UUID id) {
         InformeTecnico informe = buscar(id);
-        Optional<Cotizacion> cot = cotizaciones.findByInformeId(id);
-        if (cot.isPresent() && informe.isDesdeCotizacion()) {
-            if (proyectos.findByCotizacionId(cot.get().getId()).isPresent()) {
-                throw new ConflictException("El proyecto ya se inició; las fotos de este informe ya no se cambian");
-            }
-            return informe;
-        }
-        if (cot.isPresent()) {
-            throw new ConflictException("Esta versión ya tiene cotización; para cambiarla crea una versión nueva");
+        String motivo = sinFotos(informe);
+        if (motivo != null) {
+            throw new ConflictException(motivo);
         }
         return informe;
+    }
+
+    /**
+     * Por qué las fotos de esta versión ya no se cambian, o null si se pueden cambiar: sin cotización; levantada
+     * para una cotización hasta que se inicie el proyecto; o versión nueva aplicada a una cotización aceptada
+     * (sus fotos se suben después de guardarla). Una versión que ya no es la de la cotización aceptada, no.
+     */
+    private String sinFotos(InformeTecnico informe) {
+        if (informe.getReemplazadaEnCotizacion() != null
+                || cotizaciones.aceptadasDelInforme(informe.getGrupoId()).stream()
+                        .anyMatch(c -> !c.getInforme().getId().equals(informe.getId()))) {
+            return "Esta versión ya no es la de la cotización aceptada; los cambios van en una versión nueva";
+        }
+        Optional<Cotizacion> cot = cotizaciones.findByInformeId(informe.getId());
+        if (cot.isEmpty() || aplicada(cot.get())) {
+            return null;
+        }
+        if (informe.isDesdeCotizacion()) {
+            return proyectos.findByCotizacionId(cot.get().getId()).isPresent()
+                    ? "El proyecto ya se inició; las fotos de este informe ya no se cambian" : null;
+        }
+        return "Esta versión ya tiene cotización; para cambiarla crea una versión nueva";
     }
 
     private InformeTecnicoUbicacion ubicacionDe(InformeTecnico informe, UUID ubicacionId) {
@@ -194,13 +219,26 @@ public class InformeTecnicoService {
     private InformeResponse respuesta(InformeTecnico informe) {
         return InformeResponse.de(informe,
                 fotosPorUbicacion(informe.getUbicaciones().stream().map(InformeTecnicoUbicacion::getId).toList()),
-                versionesPorGrupo(Set.of(informe.getGrupoId())).get(informe.getGrupoId()), conProyecto(informe));
+                versionesPorGrupo(Set.of(informe.getGrupoId())).get(informe.getGrupoId()), sinFotos(informe) == null,
+                aceptada(informe.getGrupoId()));
     }
 
-    /** Solo importa para los informes levantados desde una cotización (fotos editables hasta iniciar). */
-    private boolean conProyecto(InformeTecnico informe) {
-        return informe.isDesdeCotizacion() && cotizaciones.findByInformeId(informe.getId())
-                .flatMap(c -> proyectos.findByCotizacionId(c.getId())).isPresent();
+    /** La cotización aceptada del informe (de cualquier versión), con su proyecto si lo tiene. */
+    private CotizacionAceptada aceptada(UUID grupo) {
+        return cotizaciones.aceptadasDelInforme(grupo).stream().findFirst()
+                .map(c -> {
+                    var p = proyectos.findByCotizacionId(c.getId());
+                    return new CotizacionAceptada(c.getId(), c.getNumero(), p.map(x -> x.getId()).orElse(null),
+                            p.map(x -> x.getEstado() == com.appdomotica.proyectos.entity.EstadoProyecto.CERRADO)
+                                    .orElse(false));
+                })
+                .orElse(null);
+    }
+
+    /** La versión actual de la cotización llegó con una versión nueva del informe (RF-COT-22). */
+    private boolean aplicada(Cotizacion c) {
+        return c.getEstado() == com.appdomotica.cotizaciones.entity.EstadoCotizacion.ACEPTADA
+                && informes.existsByReemplazadaEnCotizacionId(c.getId());
     }
 
     /** Versiones de cada grupo con su cotización, de la v.1 en adelante. */
@@ -214,7 +252,8 @@ public class InformeTecnicoService {
                 .collect(Collectors.toMap(c -> c.getInforme().getId(), Function.identity()));
         Map<UUID, List<VersionResumen>> r = new HashMap<>();
         for (InformeTecnico i : todas) {
-            Cotizacion c = cotPorInforme.get(i.getId());
+            // Una versión reemplazada en una cotización aceptada sigue mostrando esa cotización (historial).
+            Cotizacion c = cotPorInforme.getOrDefault(i.getId(), i.getReemplazadaEnCotizacion());
             r.computeIfAbsent(i.getGrupoId(), g -> new ArrayList<>()).add(new VersionResumen(
                     i.getId(), i.getNumeroVersion(), i.getFecha(),
                     c != null ? c.getId() : null, c != null ? c.getNumero() : null,
@@ -238,16 +277,24 @@ public class InformeTecnicoService {
         return r;
     }
 
-    /** Agrega las ubicaciones pedidas, en orden. `fotoDe` debe ser una ubicación del mismo informe. */
+    /**
+     * Agrega las ubicaciones pedidas, en orden. `fotoDe` y `desde` deben ser ubicaciones del mismo informe
+     * (de cualquiera de sus versiones).
+     */
     private void agregarUbicaciones(InformeTecnico informe, List<UbicacionRequest> pedidas, Set<UUID> fotosPermitidas) {
         int orden = 0;
+        Set<UUID> desdeUsadas = new HashSet<>();
         for (UbicacionRequest r : pedidas) {
             if (r.fotoDe() != null && !fotosPermitidas.contains(r.fotoDe())) {
                 throw new BadRequestException("La foto a copiar no es de este informe");
             }
+            if (r.desde() != null && (!fotosPermitidas.contains(r.desde()) || !desdeUsadas.add(r.desde()))) {
+                throw new BadRequestException("La ubicación de origen no es de este informe o está repetida");
+            }
             InformeTecnicoUbicacion u = new InformeTecnicoUbicacion();
             u.setInforme(informe);
             u.setNota(r.nota() == null || r.nota().isBlank() ? null : r.nota().trim());
+            u.setOrigenUbicacionId(r.desde());
             u.setOrden(orden++);
             agregarItems(informe, u, r.items());
             agregarChecklist(u, r.checklist());

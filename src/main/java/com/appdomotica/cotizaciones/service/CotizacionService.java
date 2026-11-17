@@ -51,6 +51,9 @@ import java.util.stream.Collectors;
  *   <li>Puede nacer de un informe técnico o en blanco para un lead; el informe se le puede levantar después
  *       (RF-COT-12, RF-COT-16).</li>
  *   <li>Aceptar no crea el proyecto: se inicia aparte, solo con informe (RF-COT-09, RN-11).</li>
+ *   <li>Una aceptada no se recotiza: un informe tiene como mucho una aceptada. Para recotizar se desactiva
+ *       (solo sin proyecto); para cambiarla, una versión nueva del informe la actualiza o se agrega un extra
+ *       (RF-COT-21, RF-COT-22).</li>
  * </ul>
  */
 @Service
@@ -139,6 +142,7 @@ public class CotizacionService {
         if (cotizaciones.existsByInformeId(informeId)) {
             throw new ConflictException("Esta versión del informe ya tiene cotización; ábrela o crea una versión nueva");
         }
+        sinAceptada(informe.getGrupoId(), null);
         Cotizacion c = new Cotizacion();
         c.setInforme(informe);
         c.setLead(informe.getLead());
@@ -339,12 +343,53 @@ public class CotizacionService {
     @Transactional
     public CotizacionResponse aceptar(UUID id, AccionRequest req, Usuario usuario) {
         Cotizacion c = buscarEnviada(id, req.version());
+        if (c.getInforme() != null) {
+            sinAceptada(c.getInforme().getGrupoId(), c.getId());
+        }
         c.setEstado(EstadoCotizacion.ACEPTADA);
         c.setFechaRespuesta(OffsetDateTime.now());
         c = cotizaciones.saveAndFlush(c);
         // Aviso a los jefes y a la secretaria: una tarea pública en su lista (RF-COT-18, RF-TAR-05).
         tareasEquipo.alAceptarCotizacion(c, usuario);
         return respuesta(c);
+    }
+
+    /**
+     * Deja sin efecto una cotización aceptada para poder recotizar (RF-COT-21). Jefes y secretaria, con motivo.
+     * Con proyecto no se puede: los cambios se hacen con una versión nueva del informe o con extras.
+     */
+    @Transactional
+    public CotizacionResponse desactivar(UUID id, DesactivarRequest req, Usuario usuario) {
+        Cotizacion c = buscarConVersion(id, req.version());
+        if (c.getEstado() != EstadoCotizacion.ACEPTADA) {
+            throw new ConflictException("Solo se desactiva una cotización aceptada");
+        }
+        if (proyectos.findByCotizacionId(c.getId()).isPresent()) {
+            throw new ConflictException("La cotización ya tiene proyecto: no se desactiva. Para cambiarla, crea una "
+                    + "versión nueva del informe técnico (actualiza el proyecto) o agrega un extra de materiales.");
+        }
+        if (c.getExtras().stream().anyMatch(e -> e.getEstado() == EstadoExtra.PENDIENTE)) {
+            throw new ConflictException("La cotización tiene extras pendientes; confírmalos o descártalos antes");
+        }
+        c.setEstado(EstadoCotizacion.DESACTIVADA);
+        c.setDesactivadaPor(usuario);
+        c.setDesactivadaEn(OffsetDateTime.now());
+        c.setMotivoDesactivacion(req.motivo().trim());
+        c = cotizaciones.saveAndFlush(c);
+        tareasEquipo.alDesactivarCotizacion(c, usuario);
+        return respuesta(c);
+    }
+
+    /** Un informe técnico tiene como mucho una cotización aceptada (RF-COT-21). */
+    private void sinAceptada(UUID grupoInforme, UUID salvo) {
+        cotizaciones.aceptadasDelInforme(grupoInforme).stream()
+                .filter(a -> !a.getId().equals(salvo))
+                .findFirst()
+                .ifPresent(a -> {
+                    throw new ConflictException("El informe técnico ya tiene la cotización aceptada " + a.getNumero()
+                            + ". No se recotiza: para cambiarla crea una versión nueva del informe o agrega un extra; "
+                            + "para recotizar desde cero, desactívala primero.");
+                });
     }
 
     /**

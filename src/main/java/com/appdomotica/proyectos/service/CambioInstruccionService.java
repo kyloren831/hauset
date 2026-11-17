@@ -47,7 +47,6 @@ public class CambioInstruccionService {
     private final ProyectoService proyectos;
     private final CambioInstruccionRepository cambios;
     private final InstruccionVersionRepository versiones;
-    private final InstruccionItemRepository items;
     private final ChecklistTareaRepository tareas;
     private final ProyectoEventoRepository eventos;
     private final ProductoCatalogoRepository productos;
@@ -55,6 +54,7 @@ public class CambioInstruccionService {
     private final ArchivoAdjuntoRepository archivosRepo;
     private final ExtraMaterialesService extras;
     private final TareaEquipoService tareasEquipo;
+    private final InstruccionesVersionador versionador;
 
     @Transactional
     public ProyectoDetalle proponer(UUID proyectoId, ProponerCambioRequest req, Usuario quien) {
@@ -212,7 +212,7 @@ public class CambioInstruccionService {
             }
         }
         tareas.flush();
-        copiarInstrucciones(anterior, nueva, tareas.vigentesDelProyecto(p.getId()));
+        versionador.copiarInstrucciones(anterior, nueva, tareas.vigentesDelProyecto(p.getId()));
 
         CotizacionExtra extra = null;
         if (Boolean.TRUE.equals(c.getRequiereMaterial())) {
@@ -255,68 +255,7 @@ public class CambioInstruccionService {
 
     // ---------- auxiliares ----------
 
-    /**
-     * Contenido de la versión nueva: lo vigente agrupado por producto (o por descripción si es una tarea
-     * libre), comparado con la versión anterior para marcar qué se agregó, cambió o quitó.
-     */
-    private void copiarInstrucciones(InstruccionVersion anterior, InstruccionVersion nueva, List<ChecklistTarea> vigentes) {
-        Map<String, Integer> ahora = new LinkedHashMap<>();
-        Map<String, ProductoCatalogo> producto = new HashMap<>();
-        Map<String, String> libre = new HashMap<>();
-        for (ChecklistTarea t : vigentes) {
-            String clave = t.getProducto() != null ? "p:" + t.getProducto().getId() : "d:" + t.getDescripcion();
-            ahora.merge(clave, t.getCantidad() != null ? t.getCantidad() : 1, Integer::sum);
-            if (t.getProducto() != null) {
-                producto.put(clave, t.getProducto());
-            } else {
-                libre.put(clave, t.getDescripcion());
-            }
-        }
-        int orden = 0;
-        Set<String> vistas = new HashSet<>();
-        for (InstruccionItem previo : items.findByInstruccionVersionIdOrderByOrdenAsc(anterior.getId())) {
-            if ("QUITADO".equals(previo.getAccion())) {
-                continue;
-            }
-            String clave = previo.getProducto() != null ? "p:" + previo.getProducto().getId() : "d:" + previo.getDescripcion();
-            vistas.add(clave);
-            Integer cantidad = ahora.get(clave);
-            InstruccionItem i = new InstruccionItem();
-            i.setInstruccionVersion(nueva);
-            i.setOrden(orden++);
-            i.setProducto(previo.getProducto());
-            i.setOrigenItemId(previo.getId());
-            if (cantidad == null) {
-                i.setCantidad(previo.getCantidad());
-                i.setDescripcion(previo.getDescripcion());
-                i.setAccion("QUITADO");
-            } else {
-                i.setCantidad(cantidad);
-                i.setDescripcion(previo.getProducto() != null
-                        ? recortar("Instalar " + cantidad + " × " + previo.getProducto().getNombre())
-                        : previo.getDescripcion());
-                i.setAccion(cantidad.equals(previo.getCantidad()) ? "SIN_CAMBIO" : "MODIFICADO");
-            }
-            items.save(i);
-        }
-        for (var e : ahora.entrySet()) {
-            if (vistas.contains(e.getKey())) {
-                continue;
-            }
-            ProductoCatalogo prod = producto.get(e.getKey());
-            InstruccionItem i = new InstruccionItem();
-            i.setInstruccionVersion(nueva);
-            i.setOrden(orden++);
-            i.setProducto(prod);
-            i.setCantidad(e.getValue());
-            i.setDescripcion(prod != null ? recortar("Instalar " + e.getValue() + " × " + prod.getNombre())
-                    : libre.get(e.getKey()));
-            i.setAccion("AGREGADO");
-            items.save(i);
-        }
-    }
-
-    private static ChecklistTarea nuevaTarea(InstruccionVersion v, ProductoCatalogo producto, int cantidad,
+    static ChecklistTarea nuevaTarea(InstruccionVersion v, ProductoCatalogo producto, int cantidad,
                                              InformeTecnicoUbicacion ubicacion, String nota, int orden) {
         ChecklistTarea t = new ChecklistTarea();
         t.setInstruccionVersion(v);
@@ -380,7 +319,7 @@ public class CambioInstruccionService {
         }
     }
 
-    private static String recortar(String s) {
+    static String recortar(String s) {
         return s.length() <= 300 ? s : s.substring(0, 297) + "...";
     }
 }

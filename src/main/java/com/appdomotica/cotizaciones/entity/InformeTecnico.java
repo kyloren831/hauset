@@ -47,6 +47,11 @@ public class InformeTecnico {
     @Column(name = "desde_cotizacion", nullable = false)
     private boolean desdeCotizacion;
 
+    /** Fue la versión de esta cotización aceptada hasta que una versión nueva la reemplazó (RF-COT-22). */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "reemplazada_en_cotizacion_id")
+    private Cotizacion reemplazadaEnCotizacion;
+
     private OffsetDateTime fecha = OffsetDateTime.now();
 
     @OneToMany(mappedBy = "informe", cascade = CascadeType.ALL, orphanRemoval = true)

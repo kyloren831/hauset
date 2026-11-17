@@ -90,6 +90,13 @@ public class CotizacionController {
         return service.iniciarProyecto(id, req, usuario.getUsuario());
     }
 
+    /** Deja sin efecto una aceptada sin proyecto, para poder recotizar (RF-COT-21). */
+    @PostMapping("/{id}/desactivar")
+    public CotizacionResponse desactivar(@PathVariable UUID id, @Valid @RequestBody DesactivarRequest req,
+                                         @AuthenticationPrincipal CustomUserDetails usuario) {
+        return service.desactivar(id, req, usuario.getUsuario());
+    }
+
     /** Aceptadas sin proyecto todavía: el aviso de la pantalla de cotizaciones (RF-COT-17/18). */
     @GetMapping("/por-iniciar")
     public java.util.List<CotizacionResumen> porIniciar() {

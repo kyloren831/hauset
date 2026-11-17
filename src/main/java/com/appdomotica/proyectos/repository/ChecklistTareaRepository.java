@@ -18,6 +18,11 @@ public interface ChecklistTareaRepository extends JpaRepository<ChecklistTarea, 
             + "order by t.instruccionVersion.numeroVersion, t.orden")
     List<ChecklistTarea> vigentesDelProyecto(@org.springframework.data.repository.query.Param("proyecto") UUID proyecto);
 
+    /** Todas las tareas del proyecto, vigentes o no. */
+    @org.springframework.data.jpa.repository.Query("select t from ChecklistTarea t "
+            + "where t.instruccionVersion.proyecto.id = :proyecto")
+    List<ChecklistTarea> delProyecto(@org.springframework.data.repository.query.Param("proyecto") UUID proyecto);
+
     /** Avance por proyecto: [proyectoId, total vigentes, terminadas]. */
     @org.springframework.data.jpa.repository.Query("select t.instruccionVersion.proyecto.id, count(t), "
             + "sum(case when t.estado <> com.appdomotica.proyectos.entity.EstadoTarea.PENDIENTE then 1 else 0 end) "

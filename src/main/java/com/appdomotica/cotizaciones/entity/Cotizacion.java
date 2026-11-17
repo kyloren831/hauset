@@ -87,6 +87,17 @@ public class Cotizacion {
     @Column(name = "motivo_rechazo", columnDefinition = "TEXT")
     private String motivoRechazo;
 
+    /** Desactivada: una aceptada que se deja sin efecto para poder recotizar (RF-COT-21). */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "desactivada_por")
+    private Usuario desactivadaPor;
+
+    @Column(name = "desactivada_en")
+    private OffsetDateTime desactivadaEn;
+
+    @Column(name = "motivo_desactivacion", columnDefinition = "TEXT")
+    private String motivoDesactivacion;
+
     @OneToMany(mappedBy = "cotizacion", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("orden ASC")
     private List<CotizacionItem> items = new ArrayList<>();

@@ -22,9 +22,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /** Lista de tareas de la oficina (SRS 3.8, RF-TAR-01..08). */
 @Service
@@ -66,7 +68,8 @@ public class TareaEquipoService {
         }
         TareaEquipo t = new TareaEquipo();
         t.setCreadaPor(yo);
-        aplicar(t, req.titulo(), req.descripcion(), req.fechaLimite(), req.asignadaAId(), req.privada(), yo);
+        aplicar(t, req.titulo(), req.descripcion(), req.fechaLimite(), asignadas(req.asignadasAIds(), req.asignadaAId()),
+                req.privada(), yo);
         if (req.leadId() != null) {
             t.setLead(leads.findById(req.leadId())
                     .orElseThrow(() -> new ResourceNotFoundException("Lead no encontrado: " + req.leadId())));
@@ -91,7 +94,8 @@ public class TareaEquipoService {
         if (req.privada() && t.getOrigen() != OrigenTareaEquipo.MANUAL) {
             throw new BadRequestException("Una tarea automática es de todos y no puede ser privada");
         }
-        aplicar(t, req.titulo(), req.descripcion(), req.fechaLimite(), req.asignadaAId(), req.privada(), yo);
+        aplicar(t, req.titulo(), req.descripcion(), req.fechaLimite(), asignadas(req.asignadasAIds(), req.asignadaAId()),
+                req.privada(), yo);
         return guardar(t);
     }
 
@@ -142,6 +146,12 @@ public class TareaEquipoService {
         }
     }
 
+    /** Al desactivar la cotización ya no hay proyecto que decidir: la tarea automática queda hecha. */
+    @Transactional
+    public void alDesactivarCotizacion(Cotizacion c, Usuario quien) {
+        alIniciarProyecto(c, quien);
+    }
+
     /** Un cambio de instrucciones propuesto en sitio espera a que un jefe lo confirme o rechace (RF-PRY-04). */
     @Transactional
     public void alProponerCambio(com.appdomotica.proyectos.entity.Proyecto p, UUID cambioId, String descripcion,
@@ -185,7 +195,7 @@ public class TareaEquipoService {
     // ---------- utilidades ----------
 
     private void aplicar(TareaEquipo t, String titulo, String descripcion, java.time.LocalDate fechaLimite,
-                         UUID asignadaAId, boolean privada, Usuario yo) {
+                         Set<UUID> asignadasIds, boolean privada, Usuario yo) {
         String limpio = titulo == null ? "" : titulo.trim();
         if (limpio.isEmpty()) {
             throw new BadRequestException("La tarea necesita un título");
@@ -194,18 +204,30 @@ public class TareaEquipoService {
         t.setDescripcion(descripcion == null || descripcion.isBlank() ? null : descripcion.trim());
         t.setFechaLimite(fechaLimite);
         t.setPrivada(privada);
-        Usuario asignada = null;
-        if (asignadaAId != null) {
-            asignada = usuarios.findById(asignadaAId)
-                    .filter(u -> Boolean.TRUE.equals(u.getActivo()) && ROLES.contains(u.getRol()))
-                    .orElseThrow(() -> new BadRequestException(
-                            "Una tarea se asigna solo a uno de los jefes o a la secretaria"));
-        }
         // Una privada es de quien la crea: no se le asigna a otra persona.
-        if (privada && asignada != null && !asignada.getId().equals(t.getCreadaPor().getId())) {
+        if (privada && asignadasIds.stream().anyMatch(id -> !id.equals(t.getCreadaPor().getId()))) {
             throw new BadRequestException("Una tarea privada no se asigna a otra persona");
         }
-        t.setAsignadaA(asignada);
+        // Quien ya estaba asignada se conserva aunque hoy esté desactivada; solo se valida a quien se agrega.
+        Set<UUID> antes = t.getAsignadas().stream().map(Usuario::getId).collect(Collectors.toSet());
+        Set<Usuario> nuevas = new LinkedHashSet<>();
+        for (UUID id : asignadasIds) {
+            nuevas.add(usuarios.findById(id)
+                    .filter(u -> antes.contains(u.getId())
+                            || (Boolean.TRUE.equals(u.getActivo()) && ROLES.contains(u.getRol())))
+                    .orElseThrow(() -> new BadRequestException(
+                            "Una tarea se asigna solo a los jefes o a la secretaria")));
+        }
+        t.getAsignadas().clear();
+        t.getAsignadas().addAll(nuevas);
+    }
+
+    /** Las personas pedidas, sin repetir; si la app solo manda `asignadaAId` (versión vieja), esa. */
+    private static Set<UUID> asignadas(List<UUID> ids, UUID una) {
+        if (ids != null) {
+            return ids.stream().filter(java.util.Objects::nonNull).collect(Collectors.toCollection(LinkedHashSet::new));
+        }
+        return una == null ? Set.of() : Set.of(una);
     }
 
     private static void cambiarEstado(TareaEquipo t, EstadoTareaEquipo estado, Usuario quien) {

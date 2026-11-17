@@ -24,6 +24,11 @@ public interface CotizacionRepository extends JpaRepository<Cotizacion, UUID> {
             + "and not exists (select 1 from Proyecto p where p.cotizacion = c) order by c.fechaRespuesta asc")
     java.util.List<Cotizacion> aceptadasSinProyecto();
 
+    /** Aceptadas de cualquier versión de un informe técnico (debería haber como mucho una, RF-COT-21). */
+    @Query("select c from Cotizacion c where c.informe.grupoId = :grupo "
+            + "and c.estado = com.appdomotica.cotizaciones.entity.EstadoCotizacion.ACEPTADA order by c.fechaRespuesta asc")
+    java.util.List<Cotizacion> aceptadasDelInforme(@org.springframework.data.repository.query.Param("grupo") UUID grupo);
+
     @Query(value = "select nextval('cotizacion_numero_seq')", nativeQuery = true)
     long siguienteNumero();
 }

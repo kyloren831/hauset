@@ -28,6 +28,10 @@ public class InformeTecnicoUbicacion {
     @Column(columnDefinition = "TEXT")
     private String nota;
 
+    /** Ubicación de la versión anterior de la que sale esta; null si es nueva. */
+    @Column(name = "origen_ubicacion_id")
+    private UUID origenUbicacionId;
+
     @Column(nullable = false)
     private Integer orden = 0;
 

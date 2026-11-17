@@ -38,14 +38,16 @@ class TareaEquipoIntegrationTest {
     @Autowired private PasswordEncoder encoder;
 
     private String secretaria, jefe, otroJefe, instalador, marketing;
-    private UUID idSecretaria, idInstalador;
+    private UUID idSecretaria, idJefe, idOtroJefe, idInstalador;
 
     @BeforeEach
     void preparar() throws Exception {
         secretaria = token(RolUsuario.SECRETARIA);
         idSecretaria = ultimoId;
         jefe = token(RolUsuario.JEFE_SISTEMAS);
+        idJefe = ultimoId;
         otroJefe = token(RolUsuario.JEFE_ELECTROMECANICO);
+        idOtroJefe = ultimoId;
         instalador = token(RolUsuario.INSTALADOR);
         idInstalador = ultimoId;
         marketing = token(RolUsuario.MARKETING);
@@ -122,6 +124,45 @@ class TareaEquipoIntegrationTest {
         // Reabrirla borra quién la terminó.
         JsonNode reabierta = mover(secretaria, hecha, "POR_HACER").body();
         assertTrue(reabierta.get("completadaPorNombre").isNull());
+    }
+
+    @Test
+    void variasPersonasACargoYCualquieraLaTermina() throws Exception {
+        JsonNode t = crear(secretaria, Map.of("titulo", "Visitar al cliente",
+                "asignadasAIds", java.util.List.of(idJefe.toString(), idSecretaria.toString(), idJefe.toString())));
+        JsonNode asignadas = t.get("asignadas");
+        assertEquals(2, asignadas.size(), String.valueOf(t));
+        java.util.Set<String> ids = new java.util.HashSet<>();
+        asignadas.forEach(p -> ids.add(p.get("id").asText()));
+        assertEquals(java.util.Set.of(idJefe.toString(), idSecretaria.toString()), ids);
+        // La primera (por nombre) sigue llegando como `asignadaAId` para las versiones viejas de la app.
+        assertEquals(asignadas.get(0).get("id").asText(), t.get("asignadaAId").asText());
+
+        // La marca hecha una de las asignadas, y queda quién fue.
+        JsonNode hecha = mover(jefe, t, "HECHA").body();
+        assertEquals("Prueba JEFE_SISTEMAS", hecha.get("completadaPorNombre").asText());
+        assertEquals(2, hecha.get("asignadas").size());
+
+        // Al editar se cambia el grupo: sale la secretaria y entra el otro jefe.
+        Map<String, Object> cambio = new HashMap<>();
+        cambio.put("version", hecha.get("version").asLong());
+        cambio.put("titulo", "Visitar al cliente");
+        cambio.put("privada", false);
+        cambio.put("asignadasAIds", java.util.List.of(idJefe.toString(), idOtroJefe.toString()));
+        Resp editada = llamar(put("/api/tareas-equipo/" + t.get("id").asText()), secretaria, cambio);
+        assertEquals(200, editada.status(), String.valueOf(editada.body()));
+        ids.clear();
+        editada.body().get("asignadas").forEach(p -> ids.add(p.get("id").asText()));
+        assertEquals(java.util.Set.of(idJefe.toString(), idOtroJefe.toString()), ids);
+
+        // Un instalador no entra en el grupo.
+        assertEquals(400, llamar(post("/api/tareas-equipo"), jefe, Map.of("titulo", "x",
+                "asignadasAIds", java.util.List.of(idJefe.toString(), idInstalador.toString()))).status());
+        // Una privada es solo de quien la crea.
+        assertEquals(400, llamar(post("/api/tareas-equipo"), jefe, Map.of("titulo", "x", "privada", true,
+                "asignadasAIds", java.util.List.of(idJefe.toString(), idSecretaria.toString()))).status());
+        assertEquals(201, llamar(post("/api/tareas-equipo"), jefe, Map.of("titulo", "x", "privada", true,
+                "asignadasAIds", java.util.List.of(idJefe.toString()))).status());
     }
 
     @Test
