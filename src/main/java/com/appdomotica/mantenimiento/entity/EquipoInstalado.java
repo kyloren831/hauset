@@ -47,6 +47,14 @@ public class EquipoInstalado {
     @Column(name = "direccion_mac", length = 50)
     private String direccionMac;
 
+    /** IPv4 normalizada (sin ceros a la izquierda). */
+    @Column(name = "direccion_ip", length = 15)
+    private String direccionIp;
+
+    /** Prefijo de la red, 0 a 32 (24 = 255.255.255.0). Solo con IP. */
+    @Column(name = "prefijo_red")
+    private Integer prefijo;
+
     @Column(name = "fecha_instalacion")
     private LocalDate fechaInstalacion;
 

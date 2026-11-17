@@ -3,6 +3,8 @@ package com.appdomotica.mantenimiento.dto;
 import com.appdomotica.mantenimiento.entity.EstadoRecordatorio;
 import com.appdomotica.mantenimiento.entity.TipoCredencial;
 import com.appdomotica.proyectos.entity.EstadoProyecto;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -19,12 +21,18 @@ public final class MantenimientoDtos {
 
     // ---------- equipos y credenciales ----------
 
-    /** `version` solo al editar. `productoId` es opcional (equipo del cliente). */
+    /**
+     * `version` solo al editar. `productoId` es opcional (equipo del cliente). La IP también se acepta con
+     * el prefijo pegado ("192.168.1.20/24") si `prefijo` viene vacío.
+     */
     public record EquipoRequest(
             @NotBlank(message = "Escribe un nombre para reconocer el equipo") @Size(max = 200) String nombreReferencia,
             UUID productoId,
             @Size(max = 100) String numeroSerie,
             @Size(max = 50) String direccionMac,
+            @Size(max = 30) String direccionIp,
+            @Min(value = 0, message = "El prefijo va de 0 a 32") @Max(value = 32, message = "El prefijo va de 0 a 32")
+            Integer prefijo,
             Long version) {
     }
 
@@ -57,7 +65,8 @@ public final class MantenimientoDtos {
     }
 
     public record Equipo(UUID id, String nombreReferencia, UUID productoId, String productoNombre,
-                         String numeroSerie, String direccionMac, LocalDate fechaInstalacion,
+                         String numeroSerie, String direccionMac, String direccionIp, Integer prefijo,
+                         LocalDate fechaInstalacion,
                          List<Credencial> credenciales, long version) {
     }
 

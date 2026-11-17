@@ -75,6 +75,7 @@ public class EquiposService {
                     || normalizar(cliente.getDireccion()).contains(buscado)
                     || lista.stream().anyMatch(e -> normalizar(e.getNombreReferencia()).contains(buscado)
                     || normalizar(e.getNumeroSerie()).contains(buscado)
+                    || e.getDireccionIp() != null && buscado.contains(".") && e.getDireccionIp().contains(buscado)
                     || hexBuscado.length() >= 4 && e.getDireccionMac() != null
                     && e.getDireccionMac().replace(":", "").toLowerCase(Locale.ROOT).contains(hexBuscado));
             if (coincide) {
@@ -209,10 +210,36 @@ public class EquiposService {
         if (serie != null && producto != null && equipos.serieOcupada(producto.getId(), serie, excepto)) {
             throw new ConflictException("Ya hay un " + producto.getNombre() + " con la serie " + serie);
         }
+        // "192.168.1.20/24" en el campo de la IP también vale, si el prefijo viene aparte vacío.
+        String textoIp = req.direccionIp();
+        Integer prefijo = req.prefijo();
+        if (!vacio(textoIp) && textoIp.contains("/")) {
+            String pegado = textoIp.substring(textoIp.indexOf('/') + 1).trim();
+            textoIp = textoIp.substring(0, textoIp.indexOf('/'));
+            if (prefijo == null && !pegado.isEmpty()) {
+                prefijo = prefijo(pegado);
+            }
+        }
+        String ip = ip(textoIp);
+        if (prefijo != null && ip == null) {
+            throw new BadRequestException("Escribe la IP del equipo para guardar el prefijo");
+        }
+        // Entre clientes las IP se repiten (redes privadas); dentro de un mismo proyecto, no.
+        if (ip != null) {
+            equipos.activosDe(e.getProyecto().getId()).stream()
+                    .filter(otro -> ip.equals(otro.getDireccionIp()) && !otro.getId().equals(excepto))
+                    .findFirst()
+                    .ifPresent(otro -> {
+                        throw new ConflictException("La IP " + ip + " ya la tiene " + otro.getNombreReferencia()
+                                + " en este proyecto");
+                    });
+        }
         e.setNombreReferencia(req.nombreReferencia().trim());
         e.setProducto(producto);
         e.setNumeroSerie(serie);
         e.setDireccionMac(mac);
+        e.setDireccionIp(ip);
+        e.setPrefijo(prefijo);
     }
 
     private void darDeBaja(CredencialEquipo c, Usuario usuario) {
@@ -242,7 +269,7 @@ public class EquiposService {
         List<Equipo> salida = lista.stream().map(e -> new Equipo(e.getId(), e.getNombreReferencia(),
                 e.getProducto() == null ? null : e.getProducto().getId(),
                 e.getProducto() == null ? null : e.getProducto().getNombre(),
-                e.getNumeroSerie(), e.getDireccionMac(), e.getFechaInstalacion(),
+                e.getNumeroSerie(), e.getDireccionMac(), e.getDireccionIp(), e.getPrefijo(), e.getFechaInstalacion(),
                 porEquipo.getOrDefault(e.getId(), List.of()), e.getVersion())).toList();
         // Productos del checklist para elegir al registrar (sin repetir ni los que "no aplican").
         Map<UUID, ProductoOpcion> opciones = new LinkedHashMap<>();
@@ -287,6 +314,25 @@ public class EquiposService {
             throw new BadRequestException("La MAC debe tener 12 dígitos hexadecimales (por ejemplo AA:BB:CC:11:22:33)");
         }
         return String.join(":", hex.split("(?<=\\G..)"));
+    }
+
+    /** IPv4 de cuatro números de 0 a 255; se guarda sin ceros a la izquierda (192.168.001.020 → 192.168.1.20). */
+    static String ip(String texto) {
+        if (vacio(texto)) {
+            return null;
+        }
+        String[] partes = texto.trim().split("\\.", -1);
+        if (partes.length != 4 || !Arrays.stream(partes).allMatch(n -> n.matches("\\d{1,3}") && Integer.parseInt(n) <= 255)) {
+            throw new BadRequestException("La IP debe tener cuatro números de 0 a 255 (por ejemplo 192.168.1.20)");
+        }
+        return Arrays.stream(partes).map(n -> String.valueOf(Integer.parseInt(n))).collect(Collectors.joining("."));
+    }
+
+    private static int prefijo(String texto) {
+        if (!texto.matches("\\d{1,2}") || Integer.parseInt(texto) > 32) {
+            throw new BadRequestException("El prefijo va de 0 a 32");
+        }
+        return Integer.parseInt(texto);
     }
 
     private static boolean vacio(String s) {

@@ -312,6 +312,48 @@ class MantenimientoIntegrationTest {
     }
 
     @Test
+    void ipYPrefijoDelEquipo() throws Exception {
+        UUID p = proyecto();
+        // La IP se guarda sin ceros a la izquierda; el prefijo puede venir aparte o pegado a la IP.
+        Resp alta = registrar(p, instalador, mapa("nombreReferencia", "NVR", "direccionIp", "192.168.001.020",
+                "prefijo", 24));
+        assertEquals(201, alta.status(), String.valueOf(alta.body()));
+        JsonNode nvr = alta.body().get("equipos").get(0);
+        assertEquals("192.168.1.20", nvr.get("direccionIp").asText());
+        assertEquals(24, nvr.get("prefijo").asInt());
+        JsonNode pegado = registrar(p, instalador, mapa("nombreReferencia", "Cámara", "direccionIp", "10.0.0.7/16"))
+                .body().get("equipos");
+        JsonNode camara = pegado.findParents("nombreReferencia").stream()
+                .filter(e -> e.get("nombreReferencia").asText().equals("Cámara")).findFirst().orElseThrow();
+        assertEquals("10.0.0.7", camara.get("direccionIp").asText());
+        assertEquals(16, camara.get("prefijo").asInt());
+        JsonNode sinIp = registrar(p, instalador, mapa("nombreReferencia", "Sensor")).body().get("equipos");
+        assertTrue(sinIp.findParents("nombreReferencia").stream()
+                .filter(e -> e.get("nombreReferencia").asText().equals("Sensor"))
+                .allMatch(e -> e.get("direccionIp").isNull() && e.get("prefijo").isNull()));
+
+        // La misma IP en el mismo proyecto choca; en otro proyecto (otra red privada) no.
+        assertEquals(409, registrar(p, instalador, mapa("nombreReferencia", "X", "direccionIp", "192.168.1.20")).status());
+        assertEquals(201, registrar(proyecto(), instalador, mapa("nombreReferencia", "X", "direccionIp", "192.168.1.20"))
+                .status());
+        // Al editar el mismo equipo conserva su IP sin chocar consigo mismo, y se puede quitar.
+        Resp edicion = llamar(put("/api/equipos/" + nvr.get("id").asText()), instalador, mapa("nombreReferencia", "NVR",
+                "direccionIp", "192.168.1.20", "prefijo", 25, "version", nvr.get("version").asLong()));
+        assertEquals(200, edicion.status(), String.valueOf(edicion.body()));
+
+        // Mal escritas: IP fuera de rango o incompleta, prefijo fuera de rango, prefijo sin IP.
+        for (Map<String, Object> mal : List.of(
+                mapa("nombreReferencia", "X", "direccionIp", "192.168.1.256"),
+                mapa("nombreReferencia", "X", "direccionIp", "192.168.1"),
+                mapa("nombreReferencia", "X", "direccionIp", "fe80::1"),
+                mapa("nombreReferencia", "X", "direccionIp", "192.168.1.30", "prefijo", 33),
+                mapa("nombreReferencia", "X", "direccionIp", "192.168.1.30/40"),
+                mapa("nombreReferencia", "X", "prefijo", 24))) {
+            assertEquals(400, registrar(p, instalador, mal).status(), String.valueOf(mal));
+        }
+    }
+
+    @Test
     void alCerrarSeFijaLaInstalacionYAlosSeisMesesHayRecordatorio() throws Exception {
         UUID p = proyecto();
         assertEquals(201, registrar(p, instalador, mapa("nombreReferencia", "Cámara del portón")).status());
