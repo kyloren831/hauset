@@ -1,5 +1,7 @@
 package com.appdomotica.usuarios.controller;
 
+import com.appdomotica.common.exception.BadRequestException;
+import com.appdomotica.config.CustomUserDetails;
 import com.appdomotica.usuarios.dto.UsuarioCreateRequest;
 import com.appdomotica.usuarios.dto.UsuarioResponse;
 import com.appdomotica.usuarios.dto.UsuarioUpdateRequest;
@@ -10,12 +12,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+/** CRUD de cuentas: solo los dos jefes. Las cuentas no se borran, se desactivan. */
 @RestController
 @RequestMapping("/api/usuarios/admin")
 @PreAuthorize("hasAnyRole('JEFE_SISTEMAS', 'JEFE_ELECTROMECANICO')")
@@ -44,15 +48,20 @@ public class UsuarioController {
     @PutMapping("/{id}")
     public ResponseEntity<UsuarioResponse> actualizarUsuario(
             @PathVariable UUID id,
-            @Valid @RequestBody UsuarioUpdateRequest request) {
-        return ResponseEntity.ok(usuarioService.actualizarUsuario(id, request));
+            @Valid @RequestBody UsuarioUpdateRequest request,
+            @AuthenticationPrincipal CustomUserDetails actor) {
+        return ResponseEntity.ok(usuarioService.actualizarUsuario(id, request, actor.getId()));
     }
 
     @PatchMapping("/{id}/estado")
     public ResponseEntity<UsuarioResponse> cambiarEstado(
             @PathVariable UUID id,
-            @RequestBody Map<String, Boolean> body) {
-        Boolean activo = body.getOrDefault("activo", true);
-        return ResponseEntity.ok(usuarioService.cambiarEstado(id, activo));
+            @RequestBody Map<String, Boolean> body,
+            @AuthenticationPrincipal CustomUserDetails actor) {
+        Boolean activo = body.get("activo");
+        if (activo == null) {
+            throw new BadRequestException("Indica si la cuenta queda activa o no");
+        }
+        return ResponseEntity.ok(usuarioService.cambiarEstado(id, activo, actor.getId()));
     }
 }

@@ -42,16 +42,21 @@ public class IdempotenciaFilter extends OncePerRequestFilter {
     }
 
     /**
-     * Ver una contraseña no se guarda ni se repite: la respuesta quedaría en claro en la base y una
-     * repetición la entregaría sin dejar registro en la bitácora (RF-MAN-04/06).
+     * Respuestas con secretos no se guardan ni se repiten: quedarían en claro en la base.
+     * Ver una contraseña de equipo además se entregaría sin dejar registro en la bitácora
+     * (RF-MAN-04/06); cambiar la contraseña o el teléfono propios devuelve tokens de sesión.
      */
-    private static final java.util.regex.Pattern SIN_GUARDAR =
-            java.util.regex.Pattern.compile("^/api/credenciales/[^/]+/revelar/?$");
+    private static final java.util.regex.Pattern SIN_GUARDAR = java.util.regex.Pattern.compile(
+            "^/api/(credenciales/[^/]+/revelar|usuarios/me/(password|telefono))/?$",
+            java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    /** Ruta decodificada y sin ";parámetros", la misma con la que Spring elige el controlador. */
+    private static final org.springframework.web.util.UrlPathHelper RUTAS = new org.springframework.web.util.UrlPathHelper();
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         return !METODOS.contains(request.getMethod()) || request.getHeader(CABECERA) == null
-                || SIN_GUARDAR.matcher(request.getRequestURI()).matches();
+                || SIN_GUARDAR.matcher(RUTAS.getPathWithinApplication(request)).matches();
     }
 
     @Override

@@ -26,4 +26,7 @@ public class Usuario {
     private String passwordHash;
 
     private Boolean activo = true;
+
+    /** Foto de perfil vigente (archivo adjunto); null si no tiene. */
+    private UUID fotoId;
 }

@@ -4,6 +4,7 @@ import com.appdomotica.usuarios.entity.RolUsuario;
 import com.appdomotica.usuarios.entity.Usuario;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -14,4 +15,5 @@ public interface UsuarioRepository extends JpaRepository<Usuario, UUID> {
     List<Usuario> findByRol(RolUsuario rol);
     List<Usuario> findByActivo(Boolean activo);
     List<Usuario> findByRolAndActivo(RolUsuario rol, Boolean activo);
+    long countByRolInAndActivoTrue(Collection<RolUsuario> roles);
 }

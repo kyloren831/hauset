@@ -19,6 +19,7 @@ public class UsuarioResponse {
     private RolUsuario rol;
     private String telefono;
     private Boolean activo;
+    private UUID fotoId;
 
     public static UsuarioResponse fromEntity(Usuario usuario) {
         return UsuarioResponse.builder()
@@ -27,6 +28,7 @@ public class UsuarioResponse {
                 .rol(usuario.getRol())
                 .telefono(usuario.getTelefono())
                 .activo(usuario.getActivo())
+                .fotoId(usuario.getFotoId())
                 .build();
     }
 }
