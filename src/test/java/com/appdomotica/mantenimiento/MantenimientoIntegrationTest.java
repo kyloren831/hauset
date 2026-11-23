@@ -341,6 +341,21 @@ class MantenimientoIntegrationTest {
                 "direccionIp", "192.168.1.20", "prefijo", 25, "version", nvr.get("version").asLong()));
         assertEquals(200, edicion.status(), String.valueOf(edicion.body()));
 
+        // Notas: se guardan sin espacios de más y el buscador las encuentra.
+        JsonNode editado = edicion.body().get("equipos").findParents("nombreReferencia").stream()
+                .filter(e -> e.get("nombreReferencia").asText().equals("NVR")).findFirst().orElseThrow();
+        assertTrue(editado.get("notas").isNull());
+        String nota = "Rack del cuarto de pilas " + UUID.randomUUID().toString().substring(0, 8);
+        Resp conNotas = llamar(put("/api/equipos/" + editado.get("id").asText()), instalador, mapa("nombreReferencia",
+                "NVR", "direccionIp", "192.168.1.20", "prefijo", 25, "notas", "  " + nota + "  ",
+                "version", editado.get("version").asLong()));
+        assertEquals(200, conNotas.status(), String.valueOf(conNotas.body()));
+        assertEquals(nota, conNotas.body().get("equipos").findValuesAsText("notas").stream()
+                .filter(nota::equals).findFirst().orElse(null));
+        assertEquals(1, llamar(get("/api/equipos?buscar=" + nota.substring(nota.length() - 8)), instalador, null)
+                .body().size());
+        assertEquals(400, registrar(p, instalador, mapa("nombreReferencia", "X", "notas", "x".repeat(2001))).status());
+
         // Mal escritas: IP fuera de rango o incompleta, prefijo fuera de rango, prefijo sin IP.
         for (Map<String, Object> mal : List.of(
                 mapa("nombreReferencia", "X", "direccionIp", "192.168.1.256"),

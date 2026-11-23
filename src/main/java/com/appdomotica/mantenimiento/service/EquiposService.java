@@ -75,6 +75,7 @@ public class EquiposService {
                     || normalizar(cliente.getDireccion()).contains(buscado)
                     || lista.stream().anyMatch(e -> normalizar(e.getNombreReferencia()).contains(buscado)
                     || normalizar(e.getNumeroSerie()).contains(buscado)
+                    || normalizar(e.getNotas()).contains(buscado)
                     || e.getDireccionIp() != null && buscado.contains(".") && e.getDireccionIp().contains(buscado)
                     || hexBuscado.length() >= 4 && e.getDireccionMac() != null
                     && e.getDireccionMac().replace(":", "").toLowerCase(Locale.ROOT).contains(hexBuscado));
@@ -240,6 +241,7 @@ public class EquiposService {
         e.setDireccionMac(mac);
         e.setDireccionIp(ip);
         e.setPrefijo(prefijo);
+        e.setNotas(limpio(req.notas()));
     }
 
     private void darDeBaja(CredencialEquipo c, Usuario usuario) {
@@ -269,7 +271,8 @@ public class EquiposService {
         List<Equipo> salida = lista.stream().map(e -> new Equipo(e.getId(), e.getNombreReferencia(),
                 e.getProducto() == null ? null : e.getProducto().getId(),
                 e.getProducto() == null ? null : e.getProducto().getNombre(),
-                e.getNumeroSerie(), e.getDireccionMac(), e.getDireccionIp(), e.getPrefijo(), e.getFechaInstalacion(),
+                e.getNumeroSerie(), e.getDireccionMac(), e.getDireccionIp(), e.getPrefijo(), e.getNotas(),
+                e.getFechaInstalacion(),
                 porEquipo.getOrDefault(e.getId(), List.of()), e.getVersion())).toList();
         // Productos del checklist para elegir al registrar (sin repetir ni los que "no aplican").
         Map<UUID, ProductoOpcion> opciones = new LinkedHashMap<>();

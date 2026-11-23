@@ -55,6 +55,9 @@ public class EquipoInstalado {
     @Column(name = "prefijo_red")
     private Integer prefijo;
 
+    @Column(name = "notas", length = 2000)
+    private String notas;
+
     @Column(name = "fecha_instalacion")
     private LocalDate fechaInstalacion;
 

@@ -33,6 +33,7 @@ public final class MantenimientoDtos {
             @Size(max = 30) String direccionIp,
             @Min(value = 0, message = "El prefijo va de 0 a 32") @Max(value = 32, message = "El prefijo va de 0 a 32")
             Integer prefijo,
+            @Size(max = 2000) String notas,
             Long version) {
     }
 
@@ -66,7 +67,7 @@ public final class MantenimientoDtos {
 
     public record Equipo(UUID id, String nombreReferencia, UUID productoId, String productoNombre,
                          String numeroSerie, String direccionMac, String direccionIp, Integer prefijo,
-                         LocalDate fechaInstalacion,
+                         String notas, LocalDate fechaInstalacion,
                          List<Credencial> credenciales, long version) {
     }
 
