@@ -391,13 +391,40 @@ public class ReporteEntregaPdfService {
 
     // ---------- apoyo ----------
 
+    /**
+     * Decodifica saltando píxeles para no reservar el raster completo: una foto de 12000x12000 ocuparía
+     * ~430 MB del heap. Queda de al menos el doble del lado final, y el escalado fino lo hace imagen().
+     */
+    static BufferedImage leerReducida(byte[] bytes) throws IOException {
+        try (javax.imageio.stream.ImageInputStream iis = ImageIO.createImageInputStream(new ByteArrayInputStream(bytes))) {
+            if (iis == null) {
+                return null;
+            }
+            java.util.Iterator<javax.imageio.ImageReader> lectores = ImageIO.getImageReaders(iis);
+            if (!lectores.hasNext()) {
+                return null;
+            }
+            javax.imageio.ImageReader lector = lectores.next();
+            try {
+                lector.setInput(iis, true, true);
+                int lado = Math.max(lector.getWidth(0), lector.getHeight(0));
+                int paso = Math.max(1, lado / (2 * LADO_MAXIMO_FOTO));
+                javax.imageio.ImageReadParam param = lector.getDefaultReadParam();
+                param.setSourceSubsampling(paso, paso, 0, 0);
+                return lector.read(0, param);
+            } finally {
+                lector.dispose();
+            }
+        }
+    }
+
     /** Las fotos de campo pesan varios MB: se reducen a 900 px y JPEG para que el PDF se pueda compartir. */
     static Image imagen(byte[] bytes) {
         if (bytes == null) {
             return null;
         }
         try {
-            BufferedImage original = ImageIO.read(new ByteArrayInputStream(bytes));
+            BufferedImage original = leerReducida(bytes);
             if (original == null) {
                 return null;
             }

@@ -308,9 +308,9 @@ public class CotizacionService {
                     .build());
         }
         // El PDF enviado se guarda una vez: el cliente siempre ve el mismo documento.
-        archivos.guardarGenerado(pdf.generar(c), nombrePdf(c), "application/pdf",
-                ENTIDAD_PDF, c.getId(), CATEGORIA_PDF, usuario);
-        return respuesta(c);
+        c.setPdfArchivoId(archivos.guardarGenerado(pdf.generar(c), nombrePdf(c), "application/pdf",
+                ENTIDAD_PDF, c.getId(), CATEGORIA_PDF, usuario).getId());
+        return respuesta(cotizaciones.saveAndFlush(c));
     }
 
     /**
@@ -538,7 +538,8 @@ public class CotizacionService {
     public PdfCotizacion pdf(UUID id) {
         Cotizacion c = buscar(id);
         if (c.getEstado() != EstadoCotizacion.BORRADOR) {
-            Optional<ArchivoAdjunto> guardado = archivos.ultimo(ENTIDAD_PDF, c.getId(), CATEGORIA_PDF);
+            Optional<ArchivoAdjunto> guardado = c.getPdfArchivoId() == null ? Optional.empty()
+                    : archivos.vigente(c.getPdfArchivoId());
             if (guardado.isPresent()) {
                 try (var in = archivos.cargarContenido(guardado.get()).getInputStream()) {
                     return new PdfCotizacion(nombrePdf(c), in.readAllBytes());

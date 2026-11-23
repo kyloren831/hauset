@@ -87,6 +87,10 @@ public class Cotizacion {
     @Column(name = "motivo_rechazo", columnDefinition = "TEXT")
     private String motivoRechazo;
 
+    /** PDF del último envío: es el documento que recibió el cliente y se sirve por id. */
+    @Column(name = "pdf_archivo_id")
+    private java.util.UUID pdfArchivoId;
+
     /** Desactivada: una aceptada que se deja sin efecto para poder recotizar (RF-COT-21). */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "desactivada_por")

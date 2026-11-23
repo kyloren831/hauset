@@ -2,6 +2,7 @@ package com.appdomotica.usuarios.service;
 
 import com.appdomotica.usuarios.entity.IntentoLogin;
 import com.appdomotica.usuarios.repository.IntentoLoginRepository;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -9,6 +10,7 @@ import java.time.Duration;
 import java.time.Instant;
 
 /** Limita la fuerza bruta contando fallos recientes por teléfono y por IP, guardados en la base. */
+@Slf4j
 @Service
 public class LoginAttemptService {
     private final IntentoLoginRepository repository;
@@ -32,8 +34,17 @@ public class LoginAttemptService {
                 || (ip != null && repository.countByIpAndExitosoFalseAndFechaAfter(ip, desde) >= maxFallosPorIp);
     }
 
+    /** Nunca falla: si el intento no se pudiera guardar, el limitador dejaría de contarlo. */
     public void registrar(String telefono, String ip, boolean exitoso) {
-        repository.save(new IntentoLogin(telefono, ip, exitoso));
+        try {
+            repository.save(new IntentoLogin(recortar(telefono, 50), recortar(ip, 64), exitoso));
+        } catch (RuntimeException e) {
+            log.error("No se pudo registrar el intento de login", e);
+        }
+    }
+
+    private static String recortar(String valor, int max) {
+        return valor == null || valor.length() <= max ? valor : valor.substring(0, max);
     }
 
     public long segundosDeEspera() {

@@ -112,6 +112,12 @@ public class ArchivoAdjuntoService {
         return archivoRepository.save(adjunto);
     }
 
+    /** Archivo por id si no se borró. */
+    @Transactional(readOnly = true)
+    public java.util.Optional<ArchivoAdjunto> vigente(UUID id) {
+        return archivoRepository.findById(id).filter(a -> a.getDeletedAt() == null);
+    }
+
     /** Último archivo vigente de una entidad y categoría, si existe. */
     @Transactional(readOnly = true)
     public java.util.Optional<ArchivoAdjunto> ultimo(String entidadTipo, UUID entidadId, String categoria) {

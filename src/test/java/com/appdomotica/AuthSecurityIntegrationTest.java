@@ -191,7 +191,7 @@ class AuthSecurityIntegrationTest {
     void marketingNoPuedeUsarArchivos() throws Exception {
         crearUsuario(RolUsuario.MARKETING, true);
         String bearer = "Bearer " + loginOk().get("token").asText();
-        mvc.perform(get("/api/v1/archivos/entidad/CHECKLIST_TAREA/" + UUID.randomUUID()).header("Authorization", bearer))
+        mvc.perform(get("/api/v1/archivos/" + UUID.randomUUID() + "/descargar").header("Authorization", bearer))
                 .andExpect(status().isForbidden());
     }
 

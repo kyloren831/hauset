@@ -154,14 +154,34 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(errorResponse);
     }
 
+    /** Ruta o método inexistente: 404/405, no un error interno. */
+    @ExceptionHandler({org.springframework.web.servlet.resource.NoResourceFoundException.class,
+            org.springframework.web.HttpRequestMethodNotSupportedException.class})
+    public ResponseEntity<ErrorResponse> handleRutaInexistente(Exception ex, HttpServletRequest request) {
+        HttpStatus status = ex instanceof org.springframework.web.HttpRequestMethodNotSupportedException
+                ? HttpStatus.METHOD_NOT_ALLOWED : HttpStatus.NOT_FOUND;
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .timestamp(LocalDateTime.now())
+                .status(status.value())
+                .error(status.getReasonPhrase())
+                .message("La ruta no existe")
+                .path(request.getRequestURI())
+                .build();
+        return ResponseEntity.status(status).body(errorResponse);
+    }
+
+    /** El detalle va al log con un código; al cliente no se le muestran mensajes internos. */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGlobalException(
             Exception ex, HttpServletRequest request) {
+        String codigo = java.util.UUID.randomUUID().toString().substring(0, 8);
+        org.slf4j.LoggerFactory.getLogger(GlobalExceptionHandler.class)
+                .error("Error interno {} en {} {}", codigo, request.getMethod(), request.getRequestURI(), ex);
         ErrorResponse errorResponse = ErrorResponse.builder()
                 .timestamp(LocalDateTime.now())
                 .status(HttpStatus.INTERNAL_SERVER_ERROR.value())
                 .error("Internal Server Error")
-                .message("Ocurrió un error interno en el servidor: " + ex.getMessage())
+                .message("Ocurrió un error interno en el servidor (código " + codigo + ")")
                 .path(request.getRequestURI())
                 .build();
 

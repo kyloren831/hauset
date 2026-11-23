@@ -1,3 +1,4 @@
+# Claves en un .env (no versionado) junto a este archivo; ver .env.example.
 services:
   backend:
     build: .
@@ -5,7 +6,9 @@ services:
     environment:
       - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/app_domotica
       - SPRING_DATASOURCE_USERNAME=postgres
-      - SPRING_DATASOURCE_PASSWORD=postgres
+      - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD en .env}
+      - APP_JWTSECRET=${APP_JWTSECRET:?Define APP_JWTSECRET en .env}
+      - HAUSET_CREDENCIALES_LLAVE=${HAUSET_CREDENCIALES_LLAVE:?Define HAUSET_CREDENCIALES_LLAVE en .env}
       - SPRING_JPA_HIBERNATE_DDL_AUTO=validate
       - STORAGE_DISK_PATH=/var/hauset/storage
     volumes:
@@ -21,11 +24,12 @@ services:
     environment:
       - POSTGRES_DB=app_domotica
       - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD en .env}
     volumes:
       - postgres-data:/var/lib/postgresql/data
+    # Solo en la máquina: el backend corre en el host o en esta red; nunca en la IP pública.
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     networks:
       - domotica-net
     healthcheck:
@@ -33,20 +37,6 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-
-  minio:
-    image: minio/minio
-    command: server /data --console-address ":9001"
-    environment:
-      - MINIO_ROOT_USER=admin
-      - MINIO_ROOT_PASSWORD=password
-    volumes:
-      - minio-data:/data
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    networks:
-      - domotica-net
 
   nginx:
     image: nginx:alpine
@@ -61,7 +51,6 @@ services:
 
 volumes:
   postgres-data:
-  minio-data:
   hauset-storage-data:
 
 networks:

@@ -4,6 +4,7 @@ import com.appdomotica.config.CustomUserDetails;
 import com.appdomotica.config.JwtUtils;
 import com.appdomotica.usuarios.dto.JwtResponse;
 import com.appdomotica.usuarios.dto.LoginRequest;
+import com.appdomotica.usuarios.dto.PerfilRequests;
 import com.appdomotica.usuarios.dto.TokenRefreshRequest;
 import com.appdomotica.usuarios.dto.TokenRefreshResponse;
 import com.appdomotica.usuarios.dto.UsuarioResponse;
@@ -12,6 +13,7 @@ import com.appdomotica.usuarios.service.InvalidRefreshTokenException;
 import com.appdomotica.usuarios.service.LoginAttemptService;
 import com.appdomotica.usuarios.service.RefreshTokenService;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -41,9 +43,14 @@ public class AuthController {
     private LoginAttemptService loginAttemptService;
 
     @PostMapping("/login")
-    public ResponseEntity<?> authenticateUser(@RequestBody LoginRequest loginRequest, HttpServletRequest request) {
-        String telefono = loginRequest.getTelefono() == null ? "" : loginRequest.getTelefono().trim();
+    public ResponseEntity<?> authenticateUser(@Valid @RequestBody LoginRequest loginRequest, HttpServletRequest request) {
+        String telefono = loginRequest.getTelefono().trim();
         String ip = request.getRemoteAddr();
+
+        // Ninguna cuenta tiene otro formato: se responde igual que a una clave incorrecta, sin gastar BCrypt.
+        if (!telefono.matches(PerfilRequests.TELEFONO)) {
+            return credencialesInvalidas();
+        }
 
         if (loginAttemptService.bloqueado(telefono, ip)) {
             return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
@@ -67,10 +74,14 @@ public class AuthController {
             // Mismo mensaje para teléfono inexistente, contraseña incorrecta o cuenta desactivada:
             // no se revela qué cuentas existen.
             loginAttemptService.registrar(telefono, ip, false);
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(Map.of("error", "Credenciales inválidas",
-                            "mensaje", "El teléfono o la contraseña son incorrectos."));
+            return credencialesInvalidas();
         }
+    }
+
+    private static ResponseEntity<?> credencialesInvalidas() {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(Map.of("error", "Credenciales inválidas",
+                        "mensaje", "El teléfono o la contraseña son incorrectos."));
     }
 
     @PostMapping("/refresh-token")
