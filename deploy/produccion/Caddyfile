@@ -1,0 +1,28 @@
+# /etc/caddy/Caddyfile — reemplaza api.tudominio.com por el dominio real (registro A hacia la VPS).
+# Caddy obtiene y renueva el certificado HTTPS solo.
+api.tudominio.com {
+	encode gzip
+
+	request_body {
+		max_size 20MB
+	}
+
+	@backend path /api/* /actuator/health
+	handle @backend {
+		reverse_proxy 127.0.0.1:8080 {
+			# El cliente no puede dictar su IP ni la ruta base al backend (auditoría, pista 7).
+			header_up -Forwarded
+			header_up -X-Forwarded-Prefix
+		}
+	}
+
+	# APK para instalar fuera de Google Play (copiar a /srv/descargas).
+	handle_path /descargas/* {
+		root * /srv/descargas
+		file_server
+	}
+
+	handle {
+		respond 404
+	}
+}

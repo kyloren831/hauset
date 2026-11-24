@@ -1,0 +1,22 @@
+# Postgres de producción: solo escucha en la propia máquina; el backend corre en el host con systemd.
+# Uso (en /opt/hauset):  docker compose -f postgres.compose.yml --env-file /etc/hauset/postgres.env up -d
+services:
+  postgres:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=app_domotica
+      - POSTGRES_USER=hauset
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD en /etc/hauset/postgres.env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hauset -d app_domotica"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres-data:

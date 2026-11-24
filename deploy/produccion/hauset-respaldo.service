@@ -1,0 +1,6 @@
+[Unit]
+Description=Respaldo de Hauset (base y archivos)
+
+[Service]
+Type=oneshot
+ExecStart=/opt/hauset/respaldo.sh
