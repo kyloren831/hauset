@@ -23,5 +23,8 @@ public interface ArchivoAdjuntoRepository extends JpaRepository<ArchivoAdjunto, 
 
     Optional<ArchivoAdjunto> findByStorageKey(String storageKey);
 
+    /** Archivos vigentes que siguen en otro almacén (los borrados ya no se pueden descargar). */
+    List<ArchivoAdjunto> findByStorageProviderNotAndDeletedAtIsNull(String storageProvider);
+
     Optional<ArchivoAdjunto> findFirstByChecksumSha256AndDeletedAtIsNull(String checksumSha256);
 }

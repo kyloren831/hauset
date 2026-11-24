@@ -28,7 +28,7 @@ import java.util.stream.Collectors;
 public class ArchivoAdjuntoService {
 
     private final ArchivoAdjuntoRepository archivoRepository;
-    private final StorageService storageService;
+    private final Almacenes almacenes;
 
     @Transactional
     public ArchivoAdjuntoResponse subirArchivo(
@@ -63,13 +63,14 @@ public class ArchivoAdjuntoService {
             String subpath = String.format("%s/%d/%02d", entidadTipo.toLowerCase(), hoy.getYear(), hoy.getMonthValue());
             String extension = extraerExtension(file.getOriginalFilename());
             String filename = UUID.randomUUID() + extension;
-            String storageKey = storageService.store(subpath, filename, bytes);
+            StorageService almacen = almacenes.activo();
+            String storageKey = almacen.store(subpath, filename, bytes);
 
             ArchivoAdjunto adjunto = ArchivoAdjunto.builder()
                     .entidadTipo(entidadTipo.toUpperCase())
                     .entidadId(entidadId)
                     .categoria(categoria.toUpperCase())
-                    .storageProvider("DISCO_LOCAL")
+                    .storageProvider(almacen.proveedor())
                     .storageKey(storageKey)
                     .nombreOriginal(file.getOriginalFilename() != null ? file.getOriginalFilename() : "archivo")
                     .mimeType(file.getContentType() != null ? file.getContentType() : "application/octet-stream")
@@ -95,12 +96,13 @@ public class ArchivoAdjuntoService {
                                           UUID entidadId, String categoria, Usuario subidoPor) {
         LocalDate hoy = LocalDate.now();
         String subpath = String.format("%s/%d/%02d", entidadTipo.toLowerCase(), hoy.getYear(), hoy.getMonthValue());
-        String storageKey = storageService.store(subpath, UUID.randomUUID() + extraerExtension(nombre), bytes);
+        StorageService almacen = almacenes.activo();
+        String storageKey = almacen.store(subpath, UUID.randomUUID() + extraerExtension(nombre), bytes);
         ArchivoAdjunto adjunto = ArchivoAdjunto.builder()
                 .entidadTipo(entidadTipo.toUpperCase())
                 .entidadId(entidadId)
                 .categoria(categoria.toUpperCase())
-                .storageProvider("DISCO_LOCAL")
+                .storageProvider(almacen.proveedor())
                 .storageKey(storageKey)
                 .nombreOriginal(nombre)
                 .mimeType(mimeType)
@@ -142,7 +144,7 @@ public class ArchivoAdjuntoService {
     }
 
     public Resource cargarContenido(ArchivoAdjunto archivo) {
-        return storageService.loadAsResource(archivo.getStorageKey());
+        return almacenes.de(archivo.getStorageProvider()).loadAsResource(archivo.getStorageKey());
     }
 
     @Transactional

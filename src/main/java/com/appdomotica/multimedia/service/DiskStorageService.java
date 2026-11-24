@@ -45,6 +45,11 @@ public class DiskStorageService implements StorageService {
     }
 
     @Override
+    public String proveedor() {
+        return Almacenes.DISCO_LOCAL;
+    }
+
+    @Override
     public String store(String subpath, String filename, byte[] content) {
         try {
             Path targetDir = this.rootPath.resolve(subpath).normalize();
