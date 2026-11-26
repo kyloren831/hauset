@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# /usr/local/bin/hauset-desplegar  (root:root 755). Lo invoca GitHub Actions por SSH con una llave
+# restringida a este comando: recibe el jar por la entrada estándar y su SHA-256 como argumento.
+#   ssh deploy@VPS <sha256> < api.jar
+# Respalda la base, cambia el jar, reinicia y espera el chequeo de salud; si no responde, vuelve al anterior.
+set -euo pipefail
+
+DIR=/opt/hauset
+MAX_BYTES=$((300 * 1024 * 1024))
+SALUD=http://127.0.0.1:8080/actuator/health
+
+esperado=${1:-}
+[[ $esperado =~ ^[0-9a-f]{64}$ ]] || { echo "Uso: hauset-desplegar <sha256> < jar" >&2; exit 2; }
+
+exec 9>/run/hauset-desplegar.lock
+flock -n 9 || { echo "Ya hay un despliegue en curso" >&2; exit 1; }
+
+nuevo=$(mktemp "$DIR/hauset.jar.recibido.XXXXXX")
+trap 'rm -f "$nuevo"' EXIT
+head -c "$MAX_BYTES" > "$nuevo"
+
+echo "$esperado  $nuevo" | sha256sum -c --status || { echo "El jar llegó incompleto o alterado" >&2; exit 1; }
+unzip -p "$nuevo" META-INF/MANIFEST.MF | grep -q '^Start-Class: com.appdomotica.AppDomoticaApplication' \
+  || { echo "El archivo no es el jar del backend de Hauset" >&2; exit 1; }
+
+salud() {
+  for _ in $(seq 90); do
+    curl -fsS --max-time 2 "$SALUD" 2>/dev/null | grep -q '"UP"' && return 0
+    sleep 2
+  done
+  return 1
+}
+
+echo "== Respaldo de la base"
+"$DIR/respaldo.sh"
+
+echo "== Cambio de versión"
+[[ -f $DIR/hauset.jar ]] && cp -p "$DIR/hauset.jar" "$DIR/hauset.jar.anterior"
+install -o root -g root -m 644 "$nuevo" "$DIR/hauset.jar"
+systemctl restart hauset
+
+if salud; then
+  echo "== Backend arriba con la versión $esperado"
+  exit 0
+fi
+
+echo "== El backend no respondió en 3 minutos; se vuelve a la versión anterior" >&2
+journalctl -u hauset -n 60 --no-pager >&2 || true
+if [[ -f $DIR/hauset.jar.anterior ]]; then
+  install -o root -g root -m 644 "$DIR/hauset.jar.anterior" "$DIR/hauset.jar"
+  systemctl restart hauset
+  if salud; then
+    echo "Versión anterior restaurada. Si la nueva alcanzó a migrar la base, revisa el último respaldo en /var/backups/hauset." >&2
+  else
+    echo "La versión anterior tampoco arrancó: revisar a mano (journalctl -u hauset)." >&2
+  fi
+fi
+exit 1

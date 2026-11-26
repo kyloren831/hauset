@@ -1,0 +1,81 @@
+# Cada push a master: pruebas (con Postgres) → jar → despliegue en la VPS de producción.
+# En pull requests y otras ramas solo corren las pruebas.
+# El despliegue se activa con la variable del repositorio DESPLIEGUE_ACTIVO=true y los secretos del
+# entorno "produccion": VPS_HOST, VPS_SSH_KEY y VPS_KNOWN_HOSTS (ver deploy/produccion/README.md).
+name: Backend
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pruebas:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: app_domotica_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d app_domotica_test"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Pruebas y jar
+        run: ./mvnw -B -ntp verify
+
+      - name: Guardar el jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: hauset-jar
+          path: target/api-*.jar
+          retention-days: 14
+          if-no-files-found: error
+
+  desplegar:
+    needs: pruebas
+    if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request' && vars.DESPLIEGUE_ACTIVO == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: produccion
+    # Un despliegue a la vez; si llega otro push, espera a que termine el que está en curso.
+    concurrency:
+      group: produccion
+      cancel-in-progress: false
+    steps:
+      - name: Descargar el jar
+        uses: actions/download-artifact@v4
+        with:
+          name: hauset-jar
+
+      - name: Enviar a la VPS y reiniciar
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/despliegue
+          chmod 600 ~/.ssh/despliegue
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          jar=$(ls api-*.jar)
+          sha=$(sha256sum "$jar" | cut -d' ' -f1)
+          echo "Desplegando $jar ($sha)"
+          ssh -i ~/.ssh/despliegue -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+              -o ServerAliveInterval=15 deploy@"$VPS_HOST" "$sha" < "$jar"

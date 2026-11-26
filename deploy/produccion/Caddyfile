@@ -1,6 +1,6 @@
-# /etc/caddy/Caddyfile — reemplaza api.tudominio.com por el dominio real (registro A hacia la VPS).
+# /etc/caddy/Caddyfile — API de producción en api.crhauset.com (registro A hacia la VPS).
 # Caddy obtiene y renueva el certificado HTTPS solo.
-api.tudominio.com {
+api.crhauset.com {
 	encode gzip
 
 	request_body {
