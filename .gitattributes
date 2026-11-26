@@ -1,2 +1,5 @@
 /mvnw text eol=lf
 *.cmd text eol=crlf
+# Los archivos de despliegue corren en Linux: siempre LF, aunque se clonen en Windows.
+deploy/** text eol=lf
+*.sh text eol=lf
